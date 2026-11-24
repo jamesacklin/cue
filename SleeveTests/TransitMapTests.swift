@@ -98,6 +98,22 @@ final class TransitMapTests: XCTestCase {
         }
     }
 
+    func testResetViewAvailabilityFollowsCameraAndPreservesSelection() {
+        let view = RailView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
+        let library = LibraryStore()
+        let subset = Array(Sample.albums.prefix(2))
+        view.populate(subset, library: library)
+        view.highlightStation(subset[1].id)
+        var availability: [Bool] = []
+        view.cameraChanged = { availability.append($0) }
+        view.showOverview()
+        view.zoom(by: 0.6, at: CGPoint(x: 400, y: 300))
+        view.showOverview()
+        XCTAssertEqual(availability, [false, true, false])
+        XCTAssertEqual(view.focus, subset[1].id)
+        XCTAssertEqual(view.records, subset)
+    }
+
     func testMinimapTracksZoomAndOverview() throws {
         let view = RailView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
         let library = LibraryStore()
@@ -237,6 +253,69 @@ final class TransitMapTests: XCTestCase {
         XCTAssertEqual(projected.x, end.x, accuracy: 1)
         XCTAssertEqual(projected.y, end.y, accuracy: 1)
         XCTAssertEqual(view.focus, album.id)
+    }
+
+    func testClearingLargeLibraryFiltersRestoresNeighborsAtTheAnchor() throws {
+        let albums = (0..<4600).map { i in
+            Album(id: String(i), title: "Album", artist: "Artist \(i % 237)", year: 2025 - i % 60,
+                  added: 0, thumb: nil, imprint: "Label \(i % 1000)", scenes: ["Scene \(i % 7)"])
+        }
+        let target = albums[1234]
+        let library = LibraryStore()
+        let order = ImprintOrder(albums: albums)
+        let view = RailView(frame: NSRect(x: 0, y: 0, width: 1100, height: 700))
+        let window = NSWindow(contentRect: view.frame, styleMask: .borderless, backing: .buffered, defer: false)
+        window.contentView = view
+        func position() throws -> SCNVector3 {
+            let cover = try XCTUnwrap(view.scene?.rootNode.childNode(withName: target.id, recursively: true))
+            return view.projectPoint(cover.worldPosition)
+        }
+        view.populate(albums, library: library, imprintOrder: order)
+        var times: [Double] = []
+        for i in 0..<8 {
+            let subset = albums.filter { i.isMultiple(of: 2) ? $0.artist == target.artist : $0.imprint == target.imprint }
+            view.populate(subset, library: library, imprintOrder: order)
+            view.frameStation(target.id, animate: false)
+            view.zoom(by: 0.8, at: CGPoint(x: 700, y: 400))
+            let before = try position()
+            let originalCover = try XCTUnwrap(view.scene?.rootNode.childNode(withName: target.id, recursively: true))
+            let start = ProcessInfo.processInfo.systemUptime
+            view.populate(albums, library: library, imprintOrder: order, keepingAnchor: target.id, preservingViewport: true)
+            times.append((ProcessInfo.processInfo.systemUptime - start) * 1000)
+            let after = try position()
+            XCTAssertTrue(originalCover === view.scene?.rootNode.childNode(withName: target.id, recursively: true))
+            XCTAssertEqual(after.x, before.x, accuracy: 0.1)
+            XCTAssertEqual(after.y, before.y, accuracy: 0.1)
+            XCTAssertEqual(view.focus, target.id)
+            XCTAssertEqual(view.stationCount, albums.count)
+        }
+        print("Filter clear main-thread ms: \(times.sorted())")
+    }
+
+    func testLargeLibraryBrowsingWorkload() throws {
+        let albums = (0..<4600).map { i in
+            Album(id: String(i), title: "Album", artist: "Artist \(i % 461)", year: 2025 - i % 70,
+                  added: 0, thumb: nil, imprint: "Label \(i % 1019)", scenes: ["Scene \(i % 5)"])
+        }
+        let view = RailView(frame: NSRect(x: 0, y: 0, width: 1100, height: 700))
+        let window = NSWindow(contentRect: view.frame, styleMask: .borderless, backing: .buffered, defer: false)
+        window.contentView = view
+        let library = LibraryStore()
+        view.populate(albums, library: library)
+        let cursor = CGPoint(x: 550, y: 350)
+        for mode in ["overview", "detail"] {
+            if mode == "overview" { view.showOverview() } else { view.frameStation("2300", animate: false) }
+            _ = view.snapshot()
+            var times: [Double] = []
+            for i in 0..<40 {
+                let start = ProcessInfo.processInfo.systemUptime
+                view.zoom(by: i.isMultiple(of: 2) ? 0.985 : 1 / 0.985, at: cursor)
+                times.append((ProcessInfo.processInfo.systemUptime - start) * 1000)
+            }
+            times.sort()
+            print("Transit zoom handler (\(mode)), ms: median=\(times[20]) p95=\(times[37])")
+        }
+        XCTAssertEqual(view.stationCount, albums.count)
     }
 
     func testWholeLibraryStaysMappedWhileOnlyNearbyJacketsAreMaterialized() {

@@ -22,6 +22,16 @@ final class LibraryStore: ObservableObject {
     private var token: String?
     private var job: Task<Void, Never>?
     private var albumPlayback: Task<Void, Never>?
+    private var mapOrder: Task<ImprintOrder, Never>?
+
+    func transitImprintOrder() async -> ImprintOrder {
+        if let mapOrder { return await mapOrder.value }
+        let snapshot = albums
+        let task = Task.detached(priority: .userInitiated) { ImprintOrder(albums: snapshot) }
+        mapOrder = task
+        return await task.value
+    }
+
     private var didRestore = false
     private let defaults = UserDefaults.standard
 
@@ -145,6 +155,7 @@ final class LibraryStore: ObservableObject {
         albums = records
         defaults.set(source.id, forKey: "serverID")
         defaults.set(selected.id, forKey: "sectionID")
+        mapOrder = nil
         revision += 1
         showConnection = false
     }
@@ -166,6 +177,7 @@ final class LibraryStore: ObservableObject {
         player.reset()
         CoverCache.shared.removeAllObjects()
         connectionError = nil
+        mapOrder = nil
         revision += 1
         showConnection = false
     }

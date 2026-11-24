@@ -34,6 +34,7 @@ struct TransitMap: View {
     @EnvironmentObject private var library: LibraryStore
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var imprintOrder: ImprintOrder?
+    @State private var chronological: [Album] = []
     @State private var records: [Album] = []
     @State private var artistCounts: [String: Int] = [:]
     @State private var selectedID: String?
@@ -46,41 +47,17 @@ struct TransitMap: View {
     @State private var routeName = ""
     @State private var imprint: String?
     @State private var overviewRequest = 0
+    @State private var canResetView = false
 
     private var index: Int? { records.firstIndex { $0.id == selectedID } }
     private var selected: Album? { index.map { records[$0] } }
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack {
-                Text("Transit Map").font(.system(size: 29, weight: .regular, design: .serif))
-                Spacer()
-                Button("Overview") { overviewRequest += 1 }.disabled(records.isEmpty)
-                    .help("Fit every matching album in the map")
-                if let imprint {
-                    Button { self.imprint = nil } label: {
-                        Label(imprint, systemImage: "xmark.circle")
-                            .lineLimit(1).truncationMode(.tail)
-                    }.help("Show all imprints")
-                }
-                if route != nil {
-                    Button { self.route = nil } label: {
-                        Label(routeName, systemImage: "xmark.circle")
-                    }.help("Show all artist routes")
-                }
-                Menu {
-                    Picker("Decade", selection: $decade) {
-                        Text(MapDecade.all.title).tag(MapDecade.all)
-                        ForEach(decades, id: \.self) { item in Text(verbatim: item.title).tag(item) }
-                    }.pickerStyle(.inline)
-                } label: {
-                    Label { Text(verbatim: decade.title) } icon: { Image(systemName: "line.3.horizontal.decrease") }
-                }.fixedSize().help("Filter by release decade")
-            }.padding(.horizontal, 22).padding(.vertical, 12)
             if !records.isEmpty, let imprintOrder {
                 TransitScene(records: records, artistRoute: renderedRoute, imprint: renderedImprint, imprintOrder: imprintOrder, overviewRequest: overviewRequest,
                              destination: destination, focus: selected?.id, library: library, reduceMotion: reduceMotion,
-                             choose: { id in
+                             cameraChanged: { canResetView = $0 }, choose: { id in
                                  selectedID = id
                              }, deselect: {
                                  selectedID = nil
@@ -90,17 +67,6 @@ struct TransitMap: View {
                              }, inspect: { if let selected { open(selected) } })
                     .accessibilityLabel(selected.map { "Spatial album map, \($0.title), \($0.artist)" } ?? "Spatial album map")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .overlay(alignment: .topTrailing) {
-                        if let selected {
-                            AlbumMapInspector(album: selected,
-                                              neighborhood: selected.imprint.flatMap { imprintOrder.neighborhood[$0] },
-                                              artistCount: selected.routeID.flatMap { artistCounts[$0] } ?? 0,
-                                              canFollow: route == nil && selected.routeID != nil,
-                                              follow: { routeName = selected.artist; route = selected.routeID },
-                                              open: { open(selected) })
-                                .padding(.trailing, 12).padding(.top, 38)
-                        }
-                    }
                 HStack(spacing: 12) {
                     Spacer()
                     Button { step(-1) } label: { Image(systemName: "chevron.left") }
@@ -119,12 +85,34 @@ struct TransitMap: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
+        .overlay(alignment: .topTrailing) {
+            if imprintOrder != nil {
+                VStack(alignment: .trailing, spacing: 8) {
+                    mapControls
+                    if let selected, let imprintOrder {
+                        AlbumMapInspector(album: selected,
+                                          neighborhood: selected.imprint.flatMap { imprintOrder.neighborhood[$0] },
+                                          artistCount: selected.routeID.flatMap { artistCounts[$0] } ?? 0,
+                                          canFollow: route == nil && selected.routeID != nil,
+                                          follow: { routeName = selected.artist; route = selected.routeID },
+                                          open: { open(selected) })
+                    }
+                }.padding(.trailing, 12).padding(.top, records.isEmpty ? 12 : 38)
+            }
+        }
         .task {
-            let libraryAlbums = albums
-            let result = await Task.detached(priority: .userInitiated) { ImprintOrder(albums: libraryAlbums) }.value
+            let result = await library.transitImprintOrder()
             if !Task.isCancelled { imprintOrder = result }
         }
-        .onAppear { rebuild(); if selectedID == nil { selectedID = records.first?.id } }
+        .onAppear {
+            chronological = albums.sorted {
+                if $0.year != $1.year { return ($0.year ?? Int.min) > ($1.year ?? Int.min) }
+                if $0.artist != $1.artist { return $0.artist < $1.artist }
+                return ($0.title, $0.id) < ($1.title, $1.id)
+            }
+            rebuild()
+            if selectedID == nil { selectedID = records.first?.id }
+        }
         .onChange(of: destination, initial: true) { _, target in
             if let target { selectedID = target.albumID }
         }
@@ -137,19 +125,48 @@ struct TransitMap: View {
         }
     }
 
+    private var mapControls: some View {
+        VStack(alignment: .trailing, spacing: 6) {
+            HStack(spacing: 6) {
+                if canResetView && !records.isEmpty {
+                    Button { overviewRequest += 1 } label: {
+                        Label("Reset view", systemImage: "arrow.counterclockwise")
+                    }.help("Fit the currently visible collection")
+                }
+                Menu {
+                    Picker("Decade", selection: $decade) {
+                        Text(MapDecade.all.title).tag(MapDecade.all)
+                        ForEach(decades, id: \.self) { item in Text(verbatim: item.title).tag(item) }
+                    }.pickerStyle(.inline)
+                } label: {
+                    Label { Text(verbatim: decade.title) } icon: { Image(systemName: "line.3.horizontal.decrease") }
+                }.fixedSize().help("Filter by release decade")
+            }
+            if let imprint {
+                Button { self.imprint = nil } label: {
+                    Label(imprint, systemImage: "xmark.circle").lineLimit(1)
+                }.help("Clear imprint filter")
+            }
+            if route != nil {
+                Button { route = nil } label: {
+                    Label(routeName, systemImage: "xmark.circle").lineLimit(1)
+                }.help("Clear artist filter")
+            }
+        }
+        .controlSize(.small)
+        .padding(7)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+        .frame(maxWidth: 238, alignment: .trailing)
+    }
+
     private func rebuild() {
         let query = search
-        let matching = albums.filter { (imprint == nil || $0.imprint == imprint) && (query.isEmpty || $0.title.localizedCaseInsensitiveContains(query) || $0.artist.localizedCaseInsensitiveContains(query) || $0.imprint?.localizedCaseInsensitiveContains(query) == true) }
-            .sorted {
-                if $0.year != $1.year { return ($0.year ?? Int.min) > ($1.year ?? Int.min) }
-                if $0.artist != $1.artist { return $0.artist < $1.artist }
-                return ($0.title, $0.id) < ($1.title, $1.id)
-            }
+        let matching = imprint == nil && query.isEmpty ? chronological : chronological.filter { (imprint == nil || $0.imprint == imprint) && (query.isEmpty || $0.title.localizedCaseInsensitiveContains(query) || $0.artist.localizedCaseInsensitiveContains(query) || $0.imprint?.localizedCaseInsensitiveContains(query) == true) }
         var seen = Set<MapDecade>()
         let artistMatches = route.map { id in matching.filter { $0.routeID == id } } ?? matching
         decades = artistMatches.map { MapDecade(year: $0.year) }.filter { seen.insert($0).inserted }
         if decade != .all && !decades.contains(decade) { decades.append(decade) }
-        records = artistMatches.filter(decade.matches)
+        records = decade == .all ? artistMatches : artistMatches.filter(decade.matches)
         renderedRoute = route
         renderedImprint = imprint
         artistCounts = records.reduce(into: [:]) { counts, record in
@@ -223,6 +240,7 @@ private struct TransitScene: NSViewRepresentable {
     let focus: String?
     let library: LibraryStore
     let reduceMotion: Bool
+    let cameraChanged: (Bool) -> Void
     let choose: (String) -> Void
     let deselect: () -> Void
     let followImprint: (String) -> Void
@@ -239,6 +257,13 @@ private struct TransitScene: NSViewRepresentable {
         view.step = step
         view.play = play
         view.inspect = inspect
+        view.cameraChanged = { [weak view] available in
+            // Camera updates can originate inside updateNSView. Publish after SwiftUI settles.
+            DispatchQueue.main.async {
+                guard let view, view.cameraChanged != nil, view.canResetCamera == available else { return }
+                cameraChanged(available)
+            }
+        }
         view.reduceMotion = reduceMotion
         let artistChanged = view.artistRoute != artistRoute
         let clearedFilter = (view.artistRoute != nil && artistRoute == nil) || (view.imprint != nil && imprint == nil)
@@ -256,7 +281,7 @@ private struct TransitScene: NSViewRepresentable {
             return
         }
         if changed && clearedFilter, let focus {
-            view.highlightStation(focus)
+            if view.focus != focus { view.highlightStation(focus) }
         } else if let focus, (changed && !artistChanged) || view.focus != focus {
             let first = view.focus.isEmpty && changed
             view.frameStation(focus, overview: first && records.count <= 12, animate: !first && !changed)
@@ -272,18 +297,30 @@ private struct TransitScene: NSViewRepresentable {
         }
     }
 
-    static func dismantleNSView(_ view: RailView, coordinator: ()) { view.cancelImages() }
+    static func dismantleNSView(_ view: RailView, coordinator: ()) {
+        view.cameraChanged = nil
+        view.cancelImages()
+    }
 }
 
 final class TransitMinimap: NSView {
-    private var atlas: NSImage?
-    private var extent = CGRect.zero
+    struct Drawing {
+        let atlas: NSImage
+        let extent: CGRect
+    }
+
+    var drawing: Drawing? {
+        didSet {
+            isHidden = drawing == nil
+            needsDisplay = true
+        }
+    }
     private(set) var aperture = CGRect.zero
 
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
     func populate(stops: [SCNVector3], width: Float, height: Float) {
-        extent = CGRect(x: CGFloat(-width / 2), y: -0.5, width: CGFloat(width), height: CGFloat(height))
+        let extent = CGRect(x: CGFloat(-width / 2), y: -0.5, width: CGFloat(width), height: CGFloat(height))
         let size = CGSize(width: 184, height: 106)
         let marks = NSBezierPath()
         for stop in stops {
@@ -296,9 +333,7 @@ final class TransitMinimap: NSView {
             marks.fill()
             return true
         }
-        atlas = overview
-        isHidden = stops.isEmpty
-        needsDisplay = true
+        drawing = stops.isEmpty ? nil : Drawing(atlas: overview, extent: extent)
     }
 
     func show(aperture: CGRect) {
@@ -308,7 +343,8 @@ final class TransitMinimap: NSView {
     }
 
     override func draw(_ dirtyRect: NSRect) {
-        guard let atlas, !extent.isEmpty, !aperture.isEmpty else { return }
+        guard let drawing, !aperture.isEmpty else { return }
+        let extent = drawing.extent
         let panel = NSBezierPath(roundedRect: bounds.insetBy(dx: 0.5, dy: 0.5), xRadius: 6, yRadius: 6)
         NSColor(srgbRed: 0.035, green: 0.067, blue: 0.105, alpha: 0.96).setFill()
         panel.fill()
@@ -324,7 +360,7 @@ final class TransitMinimap: NSView {
                    width: rect.width / domain.width * plot.width,
                    height: rect.height / domain.height * plot.height)
         }
-        atlas.draw(in: project(extent))
+        drawing.atlas.draw(in: project(extent))
         let footprint = project(aperture)
         // Keep the locator legible when a wide library compresses a single lane below one pixel.
         let lens = NSBezierPath(rect: footprint.insetBy(dx: -max(0, 5 - footprint.width) / 2,
@@ -338,11 +374,52 @@ final class TransitMinimap: NSView {
     }
 }
 
+// A face-on camera preserves horizontal order within each depth plane.
+private struct StationStrip {
+    typealias Entry = (id: String, position: SIMD3<Float>)
+    let entries: [Entry]
+
+    func withinX(_ lower: Float, _ upper: Float) -> ArraySlice<Entry> {
+        func boundary(_ x: Float, inclusive: Bool) -> Int {
+            var lo = 0
+            var hi = entries.count
+            while lo < hi {
+                let mid = (lo + hi) / 2
+                let value = entries[mid].position.x
+                if value < x || (inclusive && value == x) { lo = mid + 1 } else { hi = mid }
+            }
+            return lo
+        }
+        return entries[boundary(lower, inclusive: false)..<boundary(upper, inclusive: true)]
+    }
+}
+
 final class RailView: SCNView {
     var choose: (String) -> Void = { _ in }
     var deselect: () -> Void = {}
     var followImprint: (String) -> Void = { _ in }
-    private var imprintLanes: [(name: String, center: Float, span: Float, textWidth: CGFloat)] = []
+    private typealias Lane = (name: String, center: Float, span: Float, textWidth: CGFloat)
+    private struct CachedMap {
+        let albums: [Album]
+        let rails: SCNNode
+        let stops: SCNNode
+        let stations: [String: SIMD3<Float>]
+        let strips: [Float: StationStrip]
+        let records: [String: Album]
+        let routes: [String: [SIMD3<Float>]]
+        let lanes: [Lane]
+        let years: [(String, SIMD3<Float>)]
+        let width: Float
+        let height: Float
+        let minimumZ: Float
+        let minimap: TransitMinimap.Drawing?
+    }
+
+    // Keep the parent maps of the artist and imprint filters, excluding covers and camera state.
+    private var parents: [CachedMap] = []
+    private var railGeometry = SCNNode()
+    private var stopGeometry = SCNNode()
+    private var imprintLanes: [Lane] = []
     private var imprintButtons: [String: NSButton] = [:]
     var play: (String) -> Void = { _ in }
     var inspect: () -> Void = {}
@@ -354,6 +431,9 @@ final class RailView: SCNView {
     private let minimap = TransitMinimap(frame: .zero)
     private let cameraNode = SCNNode()
     private var world = SCNNode()
+    private var strips: [Float: StationStrip] = [:]
+    private var yearNodes: [String: SCNNode] = [:]
+    private static let coverCategory = 2
     private var stations: [String: SIMD3<Float>] = [:]
     var overviewRequest = 0
     var lastDestination: UUID?
@@ -367,6 +447,9 @@ final class RailView: SCNView {
     private var labels = SCNNode()
     private var mapWidth: Float = 1
     private var mapHeight: Float = 1
+    var cameraChanged: ((Bool) -> Void)?
+    var canResetCamera: Bool { !overview }
+    private var lastReportedOverview: Bool?
     private var overview = false
     private var minimumZ: Float = 0
     private let halfFOV = tan(Float(47 * Double.pi / 360))
@@ -431,12 +514,14 @@ final class RailView: SCNView {
         return node(geometry, color, at: .zero)
     }
 
-    private func lettering(_ value: String, size: CGFloat, color: NSColor, at pos: SIMD3<Float>, parent: SCNNode? = nil) {
+    @discardableResult
+    private func lettering(_ value: String, size: CGFloat, color: NSColor, at pos: SIMD3<Float>, parent: SCNNode? = nil) -> SCNNode {
         let text = SCNText(string: value, extrusionDepth: 0)
         text.font = .monospacedSystemFont(ofSize: 10, weight: .medium)
         text.flatness = 0.3
         let n = node(text, color, at: pos, parent: parent)
         n.simdScale = SIMD3(repeating: Float(size / 10))
+        return n
     }
 
     func populate(_ albums: [Album], library: LibraryStore, imprintOrder: ImprintOrder? = nil,
@@ -456,15 +541,86 @@ final class RailView: SCNView {
         }
         let previousPosition = landmark.flatMap { stations[$0] }
         let scale = world.simdScale
-        cancelImages()
+        if !preservingViewport {
+            cancelImages()
+            jackets.removeAll()
+        }
+        let restored = parents.firstIndex { $0.albums.count == albums.count && $0.albums == albums }
+            .map { parents.remove(at: $0) }
+        if albums.count < records.count && !records.isEmpty {
+            let parent = CachedMap(albums: records, rails: railGeometry, stops: stopGeometry, stations: stations,
+                                   strips: strips, records: recordByID, routes: routes, lanes: imprintLanes,
+                                   years: yearLabels, width: mapWidth, height: mapHeight, minimumZ: minimumZ,
+                                   minimap: minimap.drawing)
+            parents.append(parent)
+            if parents.count > 2 { parents.removeFirst() }
+            railGeometry.removeFromParentNode()
+            stopGeometry.removeFromParentNode()
+        }
         records = albums
-        stations.removeAll()
         world.removeFromParentNode()
         world = SCNNode()
         world.simdScale = scale
         scene?.rootNode.addChildNode(world)
         self.library = library
-        jackets.removeAll()
+        yearNodes.removeAll()
+        if let restored {
+            railGeometry = restored.rails
+            stopGeometry = restored.stops
+            world.addChildNode(railGeometry)
+            world.addChildNode(stopGeometry)
+            stations = restored.stations
+            strips = restored.strips
+            recordByID = restored.records
+            routes = restored.routes
+            imprintLanes = restored.lanes
+            yearLabels = restored.years
+            mapWidth = restored.width
+            mapHeight = restored.height
+            minimumZ = restored.minimumZ
+            minimap.drawing = restored.minimap
+        } else {
+            buildGeometry(albums, imprintOrder: imprintOrder)
+        }
+        for (id, jacket) in jackets {
+            if let position = stations[id] {
+                jacket.simdPosition = position
+                world.addChildNode(jacket)
+            } else {
+                tasks.removeValue(forKey: id)?.cancel()
+                jackets.removeValue(forKey: id)
+            }
+        }
+        labels = SCNNode()
+        world.addChildNode(labels)
+        let ring = SCNTorus(ringRadius: 0.35, pipeRadius: 0.016)
+        marker = node(ring, routeInk, at: .zero)
+        marker.eulerAngles.x = .pi / 2
+
+        if let landmark, let previousPosition, let current = stations[landmark] {
+            if let anchor { highlightStation(anchor) }
+            if overview {
+                showOverview()
+            } else {
+                if preservingViewport {
+                    let ratio = unitsPerPoint(at: current.z, distance: distance)
+                        / unitsPerPoint(at: previousPosition.z, distance: distance)
+                    let scale = world.simdScale.x
+                    aim.x = current.x * scale - (previousPosition.x * scale - aim.x) * ratio
+                    aim.y = current.y - (previousPosition.y - aim.y) * ratio
+                } else {
+                    let delta = current - previousPosition
+                    aim += SIMD3(delta.x * world.simdScale.x, delta.y, delta.z)
+                }
+                updateCamera()
+            }
+        } else if preservingViewport {
+            updateCamera()
+        }
+    }
+
+    private func buildGeometry(_ albums: [Album], imprintOrder: ImprintOrder?) {
+        stations.removeAll()
         routes.removeAll()
         yearLabels.removeAll()
         recordByID = Dictionary(uniqueKeysWithValues: albums.map { ($0.id, $0) })
@@ -532,40 +688,18 @@ final class RailView: SCNView {
                 spineExtents[z] = (spineExtents[z]?.lowerBound ?? y + 0.30)...(y + 0.30)
             }
         }
+        let entries = stations.map { (id: $0.key, position: $0.value) }
+        strips = Dictionary(grouping: entries, by: { $0.position.z }).mapValues { entries in
+            StationStrip(entries: entries.sorted { $0.position.x < $1.position.x })
+        }
         mapWidth = max(width, 6)
         mapHeight = max(Float(years.count) * 3.3, 5)
         minimap.populate(stops: dots, width: mapWidth, height: mapHeight)
         for (z, extent) in spineExtents {
             rails.append([[axisX,extent.lowerBound,z], [axisX,extent.upperBound,z]], width: 0.052, bend: 0)
         }
-        _ = node(rails.geometry(), routeInk.withAlphaComponent(0.52), at: .zero)
-        _ = mesh(dots, primitive: .point, color: routeInk)
-        labels = SCNNode()
-        world.addChildNode(labels)
-        let ring = SCNTorus(ringRadius: 0.35, pipeRadius: 0.016)
-        marker = node(ring, routeInk, at: .zero)
-        marker.eulerAngles.x = .pi / 2
-
-        if let landmark, let previousPosition, let current = stations[landmark] {
-            if let anchor { highlightStation(anchor) }
-            if overview {
-                showOverview()
-            } else {
-                if preservingViewport {
-                    let ratio = unitsPerPoint(at: current.z, distance: distance)
-                        / unitsPerPoint(at: previousPosition.z, distance: distance)
-                    let scale = world.simdScale.x
-                    aim.x = current.x * scale - (previousPosition.x * scale - aim.x) * ratio
-                    aim.y = current.y - (previousPosition.y - aim.y) * ratio
-                } else {
-                    let delta = current - previousPosition
-                    aim += SIMD3(delta.x * world.simdScale.x, delta.y, delta.z)
-                }
-                updateCamera()
-            }
-        } else if preservingViewport {
-            updateCamera()
-        }
+        railGeometry = node(rails.geometry(), routeInk.withAlphaComponent(0.52), at: .zero)
+        stopGeometry = mesh(dots, primitive: .point, color: routeInk)
     }
 
     func frameStation(_ id: String, overview landing: Bool = false, animate: Bool = true, distance detailDistance: Float = 8) {
@@ -629,6 +763,10 @@ final class RailView: SCNView {
     }
 
     private func updateCamera(duration: Double = 0) {
+        if lastReportedOverview != overview {
+            lastReportedOverview = overview
+            cameraChanged?(canResetCamera)
+        }
         let depth = max(14, distance + aim.z)
         let halfHeight = distance * halfFOV
         SCNTransaction.begin()
@@ -702,10 +840,15 @@ final class RailView: SCNView {
         let atDepth = halfHeight / (depth - aim.z)
         var nearby: [(id: String, score: Float)] = []
         if world.simdScale.x > 0.98 && distance < max(34, Float(bounds.height) / 8) {
-            for (id, p) in stations {
-                let h = (depth - p.z) * atDepth
-                let dx = abs(p.x - aim.x), dy = abs(p.y - aim.y)
-                if dx < h * aspect + 1.2, dy < h + 1.2, Float(bounds.height) / h > 22 {
+            for (z, strip) in strips {
+                let h = (depth - z) * atDepth
+                guard Float(bounds.height) / h > 22 else { continue }
+                let halfWidth = h * aspect + 1.2
+                let scale = world.simdScale.x
+                for (id, p) in strip.withinX((aim.x - halfWidth) / scale, (aim.x + halfWidth) / scale) {
+                    let dy = abs(p.y - aim.y)
+                    guard dy < h + 1.2 else { continue }
+                    let dx = p.x * scale - aim.x
                     nearby.append((id, dx * dx + dy * dy))
                 }
             }
@@ -723,6 +866,7 @@ final class RailView: SCNView {
             jackets[id] = group
             let cover = node(SCNPlane(width: 1.74, height: 1.74), NSColor.darkGray, at: .zero, parent: group)
             cover.name = id
+            cover.categoryBitMask = Self.coverCategory
             lettering(String(record.artist.prefix(24)), size: 0.205, color: .white, at: [-0.87,0.93,0], parent: group)
             if let name = record.sampleArt, let image = NSImage(named: name) {
                 cover.geometry?.firstMaterial?.diffuse.contents = image
@@ -734,7 +878,7 @@ final class RailView: SCNView {
                 }
             }
         }
-        labels.childNodes.forEach { $0.removeFromParentNode() }
+        var shownYears = Set<String>()
         let stride = max(1, Int(ceil(32 * Double(halfHeight * 2) / (3.3 * max(1, Double(bounds.height))))))
         for (i,label) in yearLabels.enumerated() where i.isMultiple(of: stride) {
             let h = (depth + 1) * atDepth
@@ -742,20 +886,36 @@ final class RailView: SCNView {
             let left = (aim.x - h * aspect * 0.95) / world.simdScale.x
             let x = max(left, label.1.x)
             let size = CGFloat(max(0.27, 26 * h / Float(bounds.height)))
-            lettering(label.0, size: size, color: .white, at: [x,label.1.y + 0.08,0], parent: labels)
-            labels.childNodes.last?.simdScale.x /= world.simdScale.x
+            let year = label.0
+            let text = yearNodes[year] ?? lettering(year, size: size, color: .white, at: .zero, parent: labels)
+            yearNodes[year] = text
+            text.isHidden = false
+            text.simdPosition = [x, label.1.y + 0.08, 0]
+            text.simdScale = [Float(size / 10) / world.simdScale.x, Float(size / 10), Float(size / 10)]
+            shownYears.insert(year)
         }
+        for (year, node) in yearNodes where !shownYears.contains(year) { node.isHidden = true }
     }
 
     // Pick batched stations in screen space, even when there is no cover node.
     private func nearestStation(to point: CGPoint) -> String? {
         var best: String?
         var limit: CGFloat = 12 * 12
-        for (id, p) in stations {
-            let screen = projectPoint(SCNVector3(p.x * world.simdScale.x, p.y - 1.08, p.z))
-            let dx = CGFloat(screen.x) - point.x, dy = CGFloat(screen.y) - point.y
-            let d = dx * dx + dy * dy
-            if d < limit { best = id; limit = d }
+        for (z, strip) in strips {
+            // Convert the pick radius to a lane interval once per plane, then verify
+            // candidates with SceneKit's projection to preserve exact hit distances.
+            let half = CGFloat(mapWidth / 2 * world.simdScale.x)
+            let left = projectPoint(SCNVector3(-half, 0, CGFloat(z))).x
+            let right = projectPoint(SCNVector3(half, 0, CGFloat(z))).x
+            guard right > left else { continue }
+            let units = CGFloat(mapWidth) / (right - left)
+            let x = (point.x - left) * units - CGFloat(mapWidth) / 2
+            for (id, p) in strip.withinX(Float(x - 13 * units), Float(x + 13 * units)) {
+                let screen = projectPoint(SCNVector3(p.x * world.simdScale.x, p.y - 1.08, p.z))
+                let dx = screen.x - point.x, dy = screen.y - point.y
+                let d = dx * dx + dy * dy
+                if d < limit { best = id; limit = d }
+            }
         }
         return best
     }
@@ -781,8 +941,7 @@ final class RailView: SCNView {
     override func mouseUp(with event: NSEvent) {
         guard !dragged else { return }
         let p = convert(event.locationInWindow, from: nil)
-        let hit = hitTest(p, options: [.searchMode: SCNHitTestSearchMode.all.rawValue])
-            .compactMap { $0.node.name }.first ?? nearestStation(to: p)
+        let hit = coverHit(at: p)?.node.name ?? nearestStation(to: p)
         let previous = pressedStation
         pressedStation = hit
         if let id = hit {
@@ -808,9 +967,14 @@ final class RailView: SCNView {
 
     private var overviewDistance: Float { max(12, mapHeight * 1.13 / (2 * halfFOV)) }
 
+    private func coverHit(at point: CGPoint) -> SCNHitTestResult? {
+        guard !jackets.isEmpty else { return nil }
+        return hitTest(point, options: [.categoryBitMask: Self.coverCategory,
+                                        .searchMode: SCNHitTestSearchMode.closest.rawValue]).first
+    }
+
     private func depthUnderCursor(_ point: CGPoint) -> Float {
-        let cover = hitTest(point, options: [.searchMode: SCNHitTestSearchMode.all.rawValue])
-            .first { $0.node.name != nil }
+        let cover = coverHit(at: point)
         if let cover { return Float(cover.worldCoordinates.z) }
         if let id = nearestStation(to: point), let p = stations[id] { return p.z }
         return aim.z
