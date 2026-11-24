@@ -20,13 +20,31 @@ private enum Screen {
         case .queue: "Queue"
         }
     }
-    var columns: [String] {
+    var columns: [CatalogOrder.Field] {
         switch self {
-        case .catalog(.artists): ["Artist"]
-        case .artist, .catalog(.albums): ["Album", "Artist", "Year"]
-        case .album: ["No.", "Track", "Artist", "Time"]
-        case .catalog(.tracks): ["No.", "Track", "Artist", "Album", "Time"]
-        case .queue: ["Track", "Artist", "Album", "Time"]
+        case .catalog(.artists): [.artist]
+        case .artist, .catalog(.albums): [.album, .artist, .year]
+        case .album: [.number, .track, .artist, .duration]
+        case .catalog(.tracks): [.number, .track, .artist, .album, .duration]
+        case .queue: [.track, .artist, .album, .duration]
+        }
+    }
+
+    var availableColumns: [CatalogOrder.Field] {
+        switch self {
+        case .catalog(.artists), .catalog(.albums), .artist: columns + [.recent]
+        case .album: columns + [.disc, .year, .albumArtist, .album]
+        case .catalog(.tracks): columns + [.disc, .year, .albumArtist]
+        case .queue: columns + [.number, .disc, .year, .albumArtist, .position]
+        }
+    }
+
+    var viewKey: String {
+        switch self {
+        case .catalog(let kind): kind.title
+        case .artist: "ArtistAlbums"
+        case .album: "AlbumTracks"
+        case .queue: "Queue"
         }
     }
 }
@@ -69,6 +87,20 @@ private final class LibraryCell: NSTableCellView {
     }
 }
 
+private final class PlayerWindow: NSWindow {
+    var playPause: (() -> Void)?
+
+    override func sendEvent(_ event: NSEvent) {
+        if event.type == .keyDown, event.charactersIgnoringModifiers == " ",
+           event.modifierFlags.intersection([.command, .control, .option, .shift]).isEmpty,
+           !(firstResponder is NSText), attachedSheet == nil, let playPause {
+            if !event.isARepeat { playPause() }
+            return
+        }
+        super.sendEvent(event)
+    }
+}
+
 private final class MusicTable: NSTableView {
     var openSelection: (() -> Void)?
     weak var searchField: NSSearchField?
@@ -101,11 +133,13 @@ final class LibraryWindow: NSWindowController, NSTableViewDataSource, NSTableVie
     private let status = NSTextField(labelWithString: "")
     private let backButton = NSButton()
     private lazy var transport = Transport(player: store.player, target: self, action: #selector(toggle))
+    private let columnMenu = NSMenu(title: "Columns")
+    private let columnButton = NSButton()
     private let retry = NSButton()
     private let plex = NSButton()
     private var connection: NSWindow?
     private var location = Location(screen: .catalog(.albums))
-    private var preferredOrders: [Catalog: CatalogOrder] = [:]
+    private var preferredOrders: [String: CatalogOrder] = [:]
     private var history: [Location] = []
     private var rows: [MusicRow] = []
     private var albumTracks: [Track]?
@@ -119,12 +153,13 @@ final class LibraryWindow: NSWindowController, NSTableViewDataSource, NSTableVie
 
     init(store: LibraryStore) {
         self.store = store
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 760, height: 460),
+        let window = PlayerWindow(contentRect: NSRect(x: 0, y: 0, width: 760, height: 460),
                               styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
         super.init(window: window)
         window.title = "Cue"
         window.contentMinSize = NSSize(width: 610, height: 300)
         window.center()
+        window.playPause = { [weak self] in self?.toggle() }
         build(window)
         store.player.setProgressVisible(window.occlusionState.contains(.visible))
         NotificationCenter.default.publisher(for: NSWindow.didChangeOcclusionStateNotification, object: window)
@@ -196,7 +231,16 @@ final class LibraryWindow: NSWindowController, NSTableViewDataSource, NSTableVie
         toolbar.displayMode = .iconOnly
         window.toolbarStyle = .unifiedCompact
         window.toolbar = toolbar
-        bar(PlacesBar(views: [tabs, NSView(), search]), inset: 5)
+        configure(columnButton, "Columns", #selector(showColumns(_:)))
+        columnButton.image = NSImage(systemSymbolName: "rectangle.split.3x1", accessibilityDescription: nil)
+        columnButton.imagePosition = .imageOnly
+        columnButton.toolTip = "Choose columns"
+        columnButton.setAccessibilityLabel("Choose columns")
+        columnButton.menu = columnMenu
+        tabs.menu = columnMenu
+        let places = PlacesBar(views: [tabs, NSView(), columnButton, search])
+        places.menu = columnMenu
+        bar(places, inset: 5)
         configure(backButton, "Back", #selector(back))
         backButton.image = NSImage(systemSymbolName: "chevron.backward", accessibilityDescription: nil)
         backButton.imagePosition = .imageOnly
@@ -227,6 +271,8 @@ final class LibraryWindow: NSWindowController, NSTableViewDataSource, NSTableVie
         scroll.contentView.postsBoundsChangedNotifications = true
         NotificationCenter.default.publisher(for: NSView.boundsDidChangeNotification, object: scroll.contentView)
             .sink { [weak self] _ in self?.loadVisibleRows() }.store(in: &subscriptions)
+        table.headerView?.menu = columnMenu
+        scroll.hasHorizontalScroller = true
         scroll.hasVerticalScroller = true
         scroll.autohidesScrollers = true
         scroll.documentView = table
@@ -272,8 +318,13 @@ final class LibraryWindow: NSWindowController, NSTableViewDataSource, NSTableVie
 
     private func newLocation(for screen: Screen) -> Location {
         var result = Location(screen: screen)
-        if let kind = screen.catalogRequest?.kind {
-            result.order = preferredOrders[kind] ?? .standard(for: kind)
+        if let saved = preferredOrders[screen.viewKey] {
+            result.order = saved
+        } else if let kind = screen.catalogRequest?.kind {
+            result.order = .standard(for: kind)
+        } else {
+            if case .queue = screen { result.order = CatalogOrder(field: .position) }
+            else { result.order = CatalogOrder(field: .number) }
         }
         return result
     }
@@ -314,24 +365,60 @@ final class LibraryWindow: NSWindowController, NSTableViewDataSource, NSTableVie
 
     private func navigate(_ newLocation: Location) {
         location = newLocation
-        if let kind = location.screen.catalogRequest?.kind {
-            preferredOrders[kind] = location.order
-        }
+        preferredOrders[location.screen.viewKey] = location.order
         albumTracks = nil
         search.stringValue = location.query
-        search.placeholderString = "Search " + (location.screen.columns.contains("Track") ? "tracks" : location.screen.columns[0].lowercased() + "s")
+        search.placeholderString = "Search " + (location.screen.columns.contains(.track) ? "tracks" : location.screen.columns[0].rawValue.lowercased() + "s")
         rebuildBreadcrumbs()
+        configureColumns()
+        reload()
+    }
+
+    private var columnKey: String { "columns." + location.screen.viewKey }
+    private var visibleColumns: [CatalogOrder.Field] {
+        let screen = location.screen
+        guard let saved = store.defaults.stringArray(forKey: columnKey) else { return screen.columns }
+        let columns = screen.availableColumns.filter { saved.contains($0.rawValue) }
+        return columns.isEmpty ? screen.columns : columns
+    }
+
+    @objc private func showColumns(_ sender: NSButton) {
+        columnMenu.popUp(positioning: nil, at: NSPoint(x: 0, y: sender.isFlipped ? sender.bounds.maxY : 0), in: sender)
+    }
+
+    @objc private func toggleColumn(_ sender: NSMenuItem) {
+        guard let field = CatalogOrder.Field(rawValue: sender.title) else { return }
+        var shown = visibleColumns
+        if shown.contains(field) {
+            guard shown.count > 1 else { return }
+            shown.removeAll { $0 == field }
+        } else {
+            shown.append(field)
+        }
+        store.defaults.set(shown.map(\.rawValue), forKey: columnKey)
+        configureColumns()
+    }
+
+    private func configureColumns() {
+        let shown = visibleColumns
+        columnMenu.removeAllItems()
+        for field in location.screen.availableColumns {
+            let item = columnMenu.addItem(withTitle: field.rawValue, action: #selector(toggleColumn(_:)), keyEquivalent: "")
+            item.target = self
+            item.state = shown.contains(field) ? .on : .off
+            item.isEnabled = shown.count > 1 || item.state == .off
+        }
+        columnMenu.autoenablesItems = false
         table.tableColumns.forEach(table.removeTableColumn)
-        for name in location.screen.columns {
+        for field in shown {
+            let name = field.rawValue
             let col = NSTableColumn(identifier: NSUserInterfaceItemIdentifier(name))
             col.title = name
             if name == "Artist", location.screen.catalogRequest?.kind == .tracks {
                 col.headerToolTip = "Sort by Plex album artist"
             }
-            if sortable(name) {
-                col.sortDescriptorPrototype = NSSortDescriptor(key: name, ascending: true)
-            }
-            let numeric = ["Year", "No.", "Time"].contains(name)
+            col.sortDescriptorPrototype = NSSortDescriptor(key: name, ascending: true)
+            let numeric = ["Year", "No.", "Time", "Disc"].contains(name)
             col.width = numeric ? 52 : (name == "Artist" ? 175 : 225)
             col.minWidth = numeric ? 48 : 72
             col.resizingMask = numeric ? [] : [.autoresizingMask, .userResizingMask]
@@ -340,7 +427,6 @@ final class LibraryWindow: NSWindowController, NSTableViewDataSource, NSTableVie
         table.columnAutoresizingStyle = .uniformColumnAutoresizingStyle
         syncSortHeader()
         table.sizeToFit()
-        reload()
     }
 
     private func reload(debounce: Bool = false) {
@@ -375,17 +461,15 @@ final class LibraryWindow: NSWindowController, NSTableViewDataSource, NSTableVie
                     else { tracks = try await store.tracks(for: album) }
                     try Task.checkCancellation()
                     albumTracks = tracks
-                    let visible = tracks.compactMap { track -> MusicRow? in
-                        let row = MusicRow.track(track, album)
-                        return row.matches(request.query) ? row : nil
-                    }
+                    let indices = request.order.sortedTrackIndices(count: tracks.count, matching: request.query) { (tracks[$0], album) }
+                    let visible = indices.map { MusicRow.track(tracks[$0], album) }
                     page = CatalogPage(rows: visible, total: visible.count, next: nil)
                 case .queue:
-                    var visible: [MusicRow] = []
-                    for (index, entry) in store.player.queue.enumerated() {
-                        let row = MusicRow.track(entry.track, entry.album)
-                        if row.matches(request.query) { visible.append(row); positions.append(index) }
+                    let queue = store.player.queue
+                    positions = request.order.sortedTrackIndices(count: queue.count, matching: request.query) {
+                        (queue[$0].track, queue[$0].album)
                     }
+                    let visible = positions.map { MusicRow.track(queue[$0].track, queue[$0].album) }
                     page = CatalogPage(rows: visible, total: visible.count, next: nil)
                 }
                 try Task.checkCancellation()
@@ -511,28 +595,13 @@ final class LibraryWindow: NSWindowController, NSTableViewDataSource, NSTableVie
         cell.identifier = column
         let field = cell.label
         let key = column.rawValue
-        let value: String
-        switch row(at: index) {
-        case nil: value = column == table.tableColumns.first?.identifier ? "Loading…" : ""
-        case .album(let album):
-            switch key {
-            case "Album": value = album.title
-            case "Year": value = album.year.map(String.init) ?? ""
-            default: value = album.artist
-            }
-        case .artist(_, let name): value = name
-        case .track(let track, let album):
-            switch key {
-            case "Artist": value = track.artist
-            case "Album": value = album.title
-            case "Time": value = timeLabel(track.duration)
-            case "No.": value = track.number <= 0 ? "" : (track.disc > 1 ? "\(track.disc).\(track.number)" : String(track.number))
-            default: value = track.title
-            }
-        }
+        guard let kind = CatalogOrder.Field(rawValue: key) else { return nil }
+        let position = queueIndices.indices.contains(index) ? queueIndices[index] : index
+        let value = row(at: index)?.text(for: kind, position: position)
+            ?? (column == table.tableColumns.first?.identifier ? "Loading…" : "")
         let current = queueIndices.indices.contains(index) && queueIndices[index] == store.player.index
         let weight: NSFont.Weight = current ? .semibold : .regular
-        let numeric = key == "Time" || key == "Year" || key == "No."
+        let numeric = key == "Time" || key == "Year" || key == "No." || kind == .disc || kind == .position
         field.font = numeric ? .monospacedDigitSystemFont(ofSize: 12, weight: weight) : .systemFont(ofSize: 12, weight: weight)
         field.textColor = numeric ? .secondaryLabelColor : .labelColor
         field.stringValue = value
@@ -564,17 +633,9 @@ final class LibraryWindow: NSWindowController, NSTableViewDataSource, NSTableVie
             reload()
         }
     }
-    private func sortable(_ column: String) -> Bool {
-        switch location.screen.catalogRequest?.kind {
-        case .albums: return column == "Album" || column == "Artist" || column == "Year"
-        case .tracks: return column == "Album" || column == "Artist" || column == "Track"
-        default: return false
-        }
-    }
-
     private func syncSortHeader() {
         let order = location.order
-        if sortable(order.field.rawValue) {
+        if table.tableColumns.contains(where: { $0.title == order.field.rawValue }) {
             table.sortDescriptors = [NSSortDescriptor(key: order.field.rawValue, ascending: order.ascending)]
         } else {
             table.sortDescriptors = []
@@ -582,15 +643,15 @@ final class LibraryWindow: NSWindowController, NSTableViewDataSource, NSTableVie
     }
 
     func tableView(_ tableView: NSTableView, sortDescriptorsDidChange oldDescriptors: [NSSortDescriptor]) {
-        guard let descriptor = tableView.sortDescriptors.first, let key = descriptor.key, sortable(key),
+        guard let descriptor = tableView.sortDescriptors.first, let key = descriptor.key,
               let field = CatalogOrder.Field(rawValue: key) else { return }
         applyOrder(CatalogOrder(field: field, ascending: descriptor.ascending))
     }
 
     private func applyOrder(_ order: CatalogOrder) {
-        guard let kind = location.screen.catalogRequest?.kind, location.order != order else { return }
+        guard location.order != order, location.screen.availableColumns.contains(order.field) else { return }
         location.order = order
-        preferredOrders[kind] = order
+        preferredOrders[location.screen.viewKey] = order
         location.firstVisibleRow = 0
         syncSortHeader()
         reload()
@@ -605,6 +666,7 @@ final class LibraryWindow: NSWindowController, NSTableViewDataSource, NSTableVie
     @objc func find() { window?.makeFirstResponder(search); search.selectText(nil) }
     @objc func connect() { store.showConnection = true }
     @objc func toggle() {
+        if let event = NSApp.currentEvent, event.type == .keyDown, event.isARepeat { return }
         if store.player.current != nil {
             store.player.toggle()
         } else if canStartSelection {
@@ -630,7 +692,7 @@ final class LibraryWindow: NSWindowController, NSTableViewDataSource, NSTableVie
         }
         guard let selected = row(at: index) else { return }
         switch selected {
-        case .artist(let id, let name): open(.artist(id: id, name: name))
+        case .artist(let id, let name, _): open(.artist(id: id, name: name))
         case .album(let album): open(.album(album))
         case .track(let track, let album):
             if case .queue = location.screen { store.selectQueuedTrack(queueIndices[index]) }
@@ -665,7 +727,7 @@ final class LibraryWindow: NSWindowController, NSTableViewDataSource, NSTableVie
             default: return false
             }
         case #selector(back): return !history.isEmpty
-        case #selector(toggle): return (store.player.current != nil || canStartSelection) && !(window?.firstResponder is NSTextView)
+        case #selector(toggle): return (store.player.current != nil || canStartSelection) && window?.attachedSheet == nil && !(window?.firstResponder is NSText)
         case #selector(nextTrack): return store.player.hasNext
         case #selector(previousTrack), #selector(clearQueue): return store.player.current != nil
         default: return true

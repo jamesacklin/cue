@@ -91,6 +91,8 @@ private struct MusicMetadata: Decodable {
     let grandparentTitle: String?
     let originalTitle: String?
     let year: Int?
+    let parentYear: Int?
+    let addedAt: Int?
     let parentIndex: Int?
     let index: Int?
     let duration: Int?
@@ -110,6 +112,8 @@ private struct MusicMetadata: Decodable {
         parentTitle = field("parentTitle")
         grandparentTitle = field("grandparentTitle")
         originalTitle = field("originalTitle")
+        addedAt = field("addedAt").flatMap(Int.init)
+        parentYear = field("parentYear").flatMap(Int.init)
         year = field("year").flatMap(Int.init)
         parentIndex = field("parentIndex").flatMap(Int.init)
         index = field("index").flatMap(Int.init)
@@ -123,13 +127,13 @@ private struct MusicMetadata: Decodable {
 
     func row(_ catalog: Catalog, parent: Album?) -> MusicRow {
         switch catalog {
-        case .artists: return .artist(id: ratingKey.value, name: title ?? "Unknown Artist")
+        case .artists: return .artist(id: ratingKey.value, name: title ?? "Unknown Artist", addedAt: addedAt)
         case .albums:
             return .album(Album(id: ratingKey.value, title: title ?? "Untitled album",
-                                artist: parentTitle ?? "Unknown Artist", year: year))
+                                artist: parentTitle ?? "Unknown Artist", year: year, addedAt: addedAt))
         case .tracks:
             let album = parent ?? Album(id: parentRatingKey?.value ?? "", title: parentTitle ?? "Unknown album",
-                                        artist: grandparentTitle ?? "Unknown Artist", year: nil)
+                                        artist: grandparentTitle ?? "Unknown Artist", year: parentYear ?? year)
             let track = Track(id: ratingKey.value, title: title ?? "Untitled track",
                               artist: originalTitle ?? grandparentTitle ?? album.artist, disc: parentIndex ?? 1,
                               number: index ?? 0, duration: Double(duration ?? 0) / 1000, part: Media?.first?.Part?.first?.key)
@@ -313,9 +317,9 @@ struct PlexClient {
         // Request only the fields used in text rows and the first playable media part.
         let fields: String
         switch kind {
-        case .artists: fields = "ratingKey,title"
-        case .albums: fields = "ratingKey,title,parentTitle,year"
-        case .tracks: fields = "ratingKey,title,parentRatingKey,parentTitle,grandparentTitle,originalTitle,parentIndex,index,duration,key"
+        case .artists: fields = "ratingKey,title,addedAt"
+        case .albums: fields = "ratingKey,title,parentTitle,year,addedAt"
+        case .tracks: fields = "ratingKey,title,parentRatingKey,parentTitle,grandparentTitle,originalTitle,parentIndex,index,duration,parentYear,year,key"
         }
         let size = CatalogPage.capacity
         let url = try server.url(for: path).appending(queryItems: filters + [

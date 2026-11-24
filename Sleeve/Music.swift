@@ -12,6 +12,7 @@ struct Album: Identifiable, Hashable {
     let title: String
     let artist: String
     let year: Int?
+    var addedAt: Int? = nil
 }
 
 struct Track: Identifiable, Hashable {
@@ -44,7 +45,8 @@ func timeLabel(_ seconds: Double) -> String {
 
 struct CatalogOrder: Equatable {
     enum Field: String {
-        case album = "Album", artist = "Artist", track = "Track", year = "Year", recent = "Recently Added"
+        case album = "Album", artist = "Artist", track = "Track", year = "Year", recent = "Date Added"
+        case disc = "Disc", number = "No.", duration = "Time", albumArtist = "Album Artist", position = "Queue Position"
     }
     let field: Field
     var ascending = true
@@ -61,18 +63,53 @@ struct CatalogOrder: Equatable {
         let primary: String
         switch field {
         case .album: primary = "album.titleSort"
-        case .artist: primary = "artist.titleSort"
+        case .artist, .albumArtist: primary = "artist.titleSort"
         case .track: primary = "titleSort"
         case .year: primary = "album.year"
-        case .recent: primary = "album.addedAt"
+        case .recent: primary = catalog == .artists ? "artist.addedAt" : "album.addedAt"
+        case .disc, .number: primary = "track.absoluteIndex"
+        case .duration: primary = "track.duration"
+        case .position: preconditionFailure("Queue positions are sorted locally")
         }
-        var keys = [primary + (ascending ? "" : ":desc")]
-        if field == .artist && catalog != .artists { keys.append("album.titleSort") }
-        if field == .year { keys += ["album.titleSort", "album.id"] }
+        let direction = ascending ? "" : ":desc"
+        var keys = [primary + direction]
+        if field == .number { keys.append("track.index" + direction) }
+        if field == .year || ((field == .artist || field == .albumArtist) && catalog != .artists) {
+            keys.append("album.titleSort")
+        }
         if catalog == .tracks && field != .track {
-            keys += ["album.id", "track.absoluteIndex", "track.index"]
+            keys.append("album.id")
+            if field != .disc && field != .number { keys.append("track.absoluteIndex") }
+            if field != .number { keys.append("track.index") }
+        } else if field == .year {
+            keys.append("album.id")
         }
         return keys.joined(separator: ",")
+    }
+}
+
+extension CatalogOrder {
+    /// The original offsets also identify the entries when the queue has duplicate tracks.
+    func sortedTrackIndices(count: Int, matching query: String, entry: (Int) -> (Track, Album)) -> [Int] {
+        let indices = (0..<count).filter { index in
+            guard !query.isEmpty else { return true }
+            let (track, album) = entry(index)
+            return MusicRow.track(track, album).matches(query)
+        }
+        if field == .position { return ascending ? indices : Array(indices.reversed()) }
+        return indices.sorted { left, right in
+            let (a, b) = ascending ? (entry(left), entry(right)) : (entry(right), entry(left))
+            switch field {
+            case .disc: return a.0.disc < b.0.disc
+            case .number: return (a.0.disc, a.0.number) < (b.0.disc, b.0.number)
+            case .duration: return a.0.duration < b.0.duration
+            case .year: return (a.1.year ?? 0) < (b.1.year ?? 0)
+            default:
+                let lhs = MusicRow.track(a.0, a.1).text(for: field, position: left)
+                let rhs = MusicRow.track(b.0, b.1).text(for: field, position: right)
+                return lhs.localizedStandardCompare(rhs) == .orderedAscending
+            }
+        }
     }
 }
 
@@ -84,17 +121,49 @@ enum Catalog: Int, CaseIterable {
 
 enum MusicRow {
     case album(Album)
-    case artist(id: String, name: String)
+    case artist(id: String, name: String, addedAt: Int? = nil)
     case track(Track, Album)
 
     var title: String {
         switch self {
         case .album(let album): album.title
-        case .artist(_, let name): name
+        case .artist(_, let name, _): name
         case .track(let track, _): track.title
         }
     }
 
+    func text(for field: CatalogOrder.Field, position: Int) -> String {
+        switch self {
+        case .artist(_, let name, let addedAt):
+            return field == .recent ? Self.dateLabel(addedAt) : name
+        case .album(let album):
+            switch field {
+            case .artist: return album.artist
+            case .year: return album.year.map(String.init) ?? ""
+            case .recent: return Self.dateLabel(album.addedAt)
+            default: return album.title
+            }
+        case .track(let track, let album):
+            switch field {
+            case .artist: return track.artist
+            case .albumArtist: return album.artist
+            case .album: return album.title
+            case .year: return album.year.map(String.init) ?? ""
+            case .duration: return timeLabel(track.duration)
+            case .disc: return String(track.disc)
+            case .number:
+                guard track.number > 0 else { return "" }
+                return track.disc > 1 ? "\(track.disc).\(track.number)" : String(track.number)
+            case .position: return String(position + 1)
+            default: return track.title
+            }
+        }
+    }
+
+    private static func dateLabel(_ timestamp: Int?) -> String {
+        guard let timestamp else { return "" }
+        return Date(timeIntervalSince1970: Double(timestamp)).formatted(date: .abbreviated, time: .omitted)
+    }
     func matches(_ query: String) -> Bool {
         if query.isEmpty || title.localizedCaseInsensitiveContains(query) { return true }
         switch self {

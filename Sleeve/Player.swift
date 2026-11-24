@@ -24,6 +24,7 @@ final class Player: ObservableObject {
     private var itemStatus: NSKeyValueObservation?
     private var playStatus: NSKeyValueObservation?
     private var finished = false
+    private var systemTransport: SystemTransport?
 
     var current: QueueEntry? { index.flatMap { queue.indices.contains($0) ? queue[$0] : nil } }
     var hasNext: Bool { index.map { $0 + 1 < queue.count } ?? false }
@@ -38,6 +39,7 @@ final class Player: ObservableObject {
             Task { @MainActor in
                 guard let self else { return }
                 self.playing = self.engine.map { $0.timeControlStatus != .paused } ?? false
+                self.updateSystemTransport()
             }
         }
         return audio
@@ -71,7 +73,7 @@ final class Player: ObservableObject {
         let duration = item.duration.seconds
         if duration.isFinite, duration > 0 {
             let measured = (duration * 1000).rounded() / 1000
-            if measured != length { length = measured }
+            if measured != length { length = measured; updateSystemTransport() }
         }
     }
 
@@ -109,7 +111,16 @@ final class Player: ObservableObject {
             }
         }
         audio.replaceCurrentItem(with: item)
+        if systemTransport == nil { systemTransport = SystemTransport(player: self) }
         audio.play()
+        updateSystemTransport(position: 0)
+    }
+
+    private func updateSystemTransport(position: Double? = nil) {
+        guard let engine, let systemTransport else { return }
+        let time = position ?? engine.currentTime().seconds
+        let rate = engine.timeControlStatus == .playing ? Double(engine.rate) : 0
+        systemTransport.update(position: time.isFinite ? time : elapsed, rate: rate)
     }
 
     private func playbackFailed() {
@@ -118,9 +129,15 @@ final class Player: ObservableObject {
     }
 
     func toggle() {
+        guard let engine else { return }
+        if engine.timeControlStatus == .paused { resume() } else { pause() }
+    }
+
+    func pause() { engine?.pause() }
+
+    func resume() {
         guard let index else { return }
-        if playing { audio.pause() }
-        else if finished || audio.currentItem?.status == .failed || error != nil { select(index) }
+        if finished || audio.currentItem?.status == .failed || error != nil { select(index) }
         else { audio.play() }
     }
 
@@ -138,9 +155,11 @@ final class Player: ObservableObject {
         finished = false
         elapsed = min(length, max(0, time))
         audio.seek(to: CMTime(seconds: elapsed, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero)
+        updateSystemTransport(position: elapsed)
     }
 
     func reset() {
+        systemTransport = nil
         end = nil
         failure = nil
         itemStatus = nil

@@ -45,6 +45,13 @@ private final class FixtureProtocol: URLProtocol {
                 ]]]
             }
         case "/library/sections/4/all":
+            if value("artist.title") == "column fixture" {
+                let metadata: [String: Any] = ["ratingKey": "51", "title": value("sort") ?? "",
+                    "index": 7, "parentIndex": 2, "duration": 123000, "parentYear": 1996,
+                    "originalTitle": "Guest", "grandparentTitle": "Ensemble", "addedAt": 1700000000]
+                json = ["MediaContainer": ["totalSize": 1, "Metadata": [metadata]]]
+                break
+            }
             if value("album.title") == "large" {
                 let start = Int(value("X-Plex-Container-Start")!)!
                 let total = 100_003
@@ -208,6 +215,37 @@ final class PlexClientTests: XCTestCase {
         let query = try XCTUnwrap(URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems)
         XCTAssertEqual(query, [URLQueryItem(name: "download", value: "0"), URLQueryItem(name: "X-Plex-Token", value: "fixture-server")])
         XCTAssertThrowsError(try server.stream(for: tracks[1]))
+    }
+
+    func testOptionalColumnsRequestPlexSortAndDisplayMetadata() async throws {
+        let section = LibrarySection(key: "4", title: "Records", type: "artist")
+        let cases: [(Catalog, CatalogOrder.Field, Bool, String)] = [
+            (.artists, .recent, false, "artist.addedAt:desc"),
+            (.albums, .recent, true, "album.addedAt"),
+            (.tracks, .duration, false, "track.duration:desc,album.id,track.absoluteIndex,track.index"),
+            (.tracks, .disc, true, "track.absoluteIndex,album.id,track.index"),
+            (.tracks, .number, false, "track.absoluteIndex:desc,track.index:desc,album.id"),
+            (.tracks, .year, true, "album.year,album.titleSort,album.id,track.absoluteIndex,track.index"),
+            (.tracks, .albumArtist, true, "artist.titleSort,album.titleSort,album.id,track.absoluteIndex,track.index")
+        ]
+        let api = client
+        for (catalog, field, ascending, expected) in cases {
+            let page = try await api.page(catalog, section: section, on: server, query: "column fixture", offset: 0,
+                                          order: CatalogOrder(field: field, ascending: ascending))
+            let row = try XCTUnwrap(page.rows.first)
+            XCTAssertEqual(row.title, expected)
+            if catalog == .tracks {
+                XCTAssertEqual(row.text(for: .year, position: 0), "1996")
+                XCTAssertEqual(row.text(for: .disc, position: 0), "2")
+                XCTAssertEqual(row.text(for: .number, position: 0), "2.7")
+                XCTAssertEqual(row.text(for: .duration, position: 0), "2:03")
+                XCTAssertEqual(row.text(for: .artist, position: 0), "Guest")
+                XCTAssertEqual(row.text(for: .albumArtist, position: 0), "Ensemble")
+            } else {
+                let date = Date(timeIntervalSince1970: 1700000000).formatted(date: .abbreviated, time: .omitted)
+                XCTAssertEqual(row.text(for: .recent, position: 0), date)
+            }
+        }
     }
 
     func testSearchRequestsOneTrackPageWithAlbumContext() async throws {

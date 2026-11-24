@@ -23,7 +23,7 @@ final class LibraryStore: ObservableObject {
     private var job: Task<Void, Never>?
     private var albumPlayback: Task<Void, Never>?
     private var didRestore = false
-    private let defaults: UserDefaults
+    let defaults: UserDefaults
 
     init(client: PlexClient? = nil, defaults: UserDefaults = .standard) {
         self.defaults = defaults

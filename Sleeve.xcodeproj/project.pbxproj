@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		097E0FD3C76E88EADC8BC650 /* ConnectionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0B7FF8F122B4A1089B278B38 /* ConnectionView.swift */; };
 		0BCCE0AC904E24E1E0FA6BC8 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 6E50C091577A83BEAEDB8E5D /* Assets.xcassets */; };
+		2EA429D95BD0F8B52E929745 /* SystemTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 27DCBA7F5759A0C3BD1AAF25 /* SystemTransport.swift */; };
 		46553A22BAFCDF12124F7897 /* Music.swift in Sources */ = {isa = PBXBuildFile; fileRef = 46E0B98BF1897C7DDFDD3FC1 /* Music.swift */; };
 		627089CF80AFE734AD3E74F5 /* Player.swift in Sources */ = {isa = PBXBuildFile; fileRef = 37378CC5D2E70D06EACE6577 /* Player.swift */; };
 		6D6F8BB77AE58B6AE7BCB183 /* PlexClientTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 58F5A7280C80595CE9B72B84 /* PlexClientTests.swift */; };
@@ -36,6 +37,7 @@
 		0349DBA43A494CB6C6B561B7 /* PlexClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlexClient.swift; sourceTree = "<group>"; };
 		0A2B6643171EAFD68A88A93A /* Credentials.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Credentials.swift; sourceTree = "<group>"; };
 		0B7FF8F122B4A1089B278B38 /* ConnectionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionView.swift; sourceTree = "<group>"; };
+		27DCBA7F5759A0C3BD1AAF25 /* SystemTransport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemTransport.swift; sourceTree = "<group>"; };
 		37378CC5D2E70D06EACE6577 /* Player.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Player.swift; sourceTree = "<group>"; };
 		3CCAE4925A6A3F35AF99ACFD /* LibraryStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryStore.swift; sourceTree = "<group>"; };
 		46E0B98BF1897C7DDFDD3FC1 /* Music.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Music.swift; sourceTree = "<group>"; };
@@ -91,6 +93,7 @@
 				37378CC5D2E70D06EACE6577 /* Player.swift */,
 				0349DBA43A494CB6C6B561B7 /* PlexClient.swift */,
 				F423F821382A323A127A2320 /* SleeveApp.swift */,
+				27DCBA7F5759A0C3BD1AAF25 /* SystemTransport.swift */,
 			);
 			path = Sleeve;
 			sourceTree = "<group>";
@@ -214,6 +217,7 @@
 				627089CF80AFE734AD3E74F5 /* Player.swift in Sources */,
 				A8C5430D30142BA7270311BA /* PlexClient.swift in Sources */,
 				C14A2448AC24673799601F0D /* SleeveApp.swift in Sources */,
+				2EA429D95BD0F8B52E929745 /* SystemTransport.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -349,7 +353,7 @@
 				CODE_SIGN_IDENTITY = "-";
 				CODE_SIGN_STYLE = Manual;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 6;
+				CURRENT_PROJECT_VERSION = 7;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_NS_ASSERTIONS = NO;
@@ -363,7 +367,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 0.1.4;
+				MARKETING_VERSION = 0.1.5;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -410,7 +414,7 @@
 				CODE_SIGN_IDENTITY = "-";
 				CODE_SIGN_STYLE = Manual;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 6;
+				CURRENT_PROJECT_VERSION = 7;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
@@ -430,7 +434,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 0.1.4;
+				MARKETING_VERSION = 0.1.5;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
