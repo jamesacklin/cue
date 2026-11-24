@@ -356,6 +356,22 @@ final class PlexClientTests: XCTestCase {
     }
 
     @MainActor
+    func testToolbarOpensAndDismissesPlexConnectionAtMinimumWidth() async throws {
+        let controller = LibraryWindow(store: LibraryStore())
+        let window = try XCTUnwrap(controller.window)
+        window.setContentSize(window.contentMinSize)
+        controller.showWindow(nil)
+        defer { controller.close() }
+        let button = try XCTUnwrap(window.toolbar?.visibleItems?.compactMap { $0.view as? NSButton }.first)
+        XCTAssertTrue(button.isEnabled)
+        button.performClick(nil)
+        try await waitUntil { window.attachedSheet != nil }
+        let done = try XCTUnwrap(window.attachedSheet?.contentView?.descendants(of: NSButton.self).first { $0.title == "Done" })
+        done.performClick(nil)
+        try await waitUntil { window.attachedSheet == nil }
+    }
+
+    @MainActor
     func testTypingFromTablesFocusesSearchAndFiltersFromTheFirstKey() async throws {
         let suite = "CueTyping-" + UUID().uuidString
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))

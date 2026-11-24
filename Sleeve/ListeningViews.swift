@@ -2,6 +2,10 @@ import AppKit
 import AVKit
 import Combine
 
+extension NSColor {
+    static let cuePanel = NSColor(srgbRed: 0.10, green: 0.11, blue: 0.15, alpha: 1)
+}
+
 private final class SeekSlider: NSSlider {
     private(set) var isScrubbing = false
 
@@ -33,9 +37,10 @@ final class Transport: NSStackView, @preconcurrency AVRoutePickerViewDelegate {
     init(player: Player, target: AnyObject, action: Selector) {
         self.player = player
         super.init(frame: .zero)
+        appearance = NSAppearance(named: .darkAqua)
         orientation = .vertical
         alignment = .leading
-        spacing = 7
+        spacing = 4
         edgeInsets = .init(top: 9, left: 12, bottom: 10, right: 12)
         title.font = .systemFont(ofSize: 13, weight: .medium)
         title.lineBreakMode = .byTruncatingTail
@@ -78,12 +83,16 @@ final class Transport: NSStackView, @preconcurrency AVRoutePickerViewDelegate {
         seek.action = #selector(scrub)
         seek.setContentHuggingPriority(.defaultLow, for: .horizontal)
         controls.addArrangedSubview(seek)
+        time.textColor = .secondaryLabelColor
         time.font = .monospacedDigitSystemFont(ofSize: 11, weight: .regular)
         controls.addArrangedSubview(time)
         controls.setCustomSpacing(16, after: time)
-        let label = NSTextField(labelWithString: "Volume")
-        label.font = .systemFont(ofSize: 11)
-        controls.addArrangedSubview(label)
+        if let speaker = NSImage(systemSymbolName: "speaker.wave.2", accessibilityDescription: nil) {
+            let label = NSImageView(image: speaker)
+            label.contentTintColor = .secondaryLabelColor
+            label.setAccessibilityElement(false)
+            controls.addArrangedSubview(label)
+        }
         volume.controlSize = .small
         volume.maxValue = 1
         volume.doubleValue = player.volume
@@ -106,6 +115,12 @@ final class Transport: NSStackView, @preconcurrency AVRoutePickerViewDelegate {
             }.store(in: &subscriptions)
     }
     required init?(coder: NSCoder) { fatalError() }
+
+    override func draw(_ dirtyRect: NSRect) {
+        NSColor.cuePanel.setFill()
+        dirtyRect.intersection(bounds).fill()
+        super.draw(dirtyRect)
+    }
 
     private func render(_ current: QueueEntry?, playing: Bool, error: String?, hasNext: Bool) {
         title.stringValue = error ?? current.map { "\($0.track.artist) — \($0.track.title)" } ?? "Stopped"

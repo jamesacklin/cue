@@ -38,6 +38,17 @@ private struct Location {
     var order = CatalogOrder(field: .album)
 }
 
+private final class PlacesBar: NSStackView {
+    override func draw(_ dirtyRect: NSRect) {
+        let area = dirtyRect.intersection(bounds)
+        NSColor.windowBackgroundColor.setFill()
+        area.fill()
+        NSColor.labelColor.withAlphaComponent(0.07).setFill()
+        area.fill()
+        super.draw(dirtyRect)
+    }
+}
+
 private final class LibraryCell: NSTableCellView {
     let label = NSTextField(labelWithString: "")
 
@@ -81,7 +92,7 @@ private final class MusicTable: NSTableView {
 }
 
 @MainActor
-final class LibraryWindow: NSWindowController, NSTableViewDataSource, NSTableViewDelegate, NSSearchFieldDelegate, NSMenuItemValidation {
+final class LibraryWindow: NSWindowController, NSTableViewDataSource, NSTableViewDelegate, NSSearchFieldDelegate, NSMenuItemValidation, NSToolbarDelegate {
     private let store: LibraryStore
     private let table = MusicTable()
     private let tabs = NSSegmentedControl(labels: Catalog.allCases.map(\.title) + ["Queue"], trackingMode: .selectOne, target: nil, action: nil)
@@ -142,13 +153,18 @@ final class LibraryWindow: NSWindowController, NSTableViewDataSource, NSTableVie
         root.spacing = 0
         root.alignment = .leading
         window.contentView = root
-        func bar(_ views: [NSView]) -> NSStackView {
-            let stack = NSStackView(views: views)
+        func divider() {
+            let rule = NSBox()
+            rule.boxType = .separator
+            root.addArrangedSubview(rule)
+            rule.widthAnchor.constraint(equalTo: root.widthAnchor).isActive = true
+        }
+        func bar(_ stack: NSStackView, inset: CGFloat) {
             stack.spacing = 8
-            stack.edgeInsets = .init(top: 7, left: 12, bottom: 7, right: 12)
+            stack.edgeInsets = .init(top: inset, left: 10, bottom: inset, right: 10)
             root.addArrangedSubview(stack)
             stack.widthAnchor.constraint(equalTo: root.widthAnchor).isActive = true
-            return stack
+            divider()
         }
         func configure(_ button: NSButton, _ title: String, _ action: Selector) {
             button.title = title
@@ -157,14 +173,36 @@ final class LibraryWindow: NSWindowController, NSTableViewDataSource, NSTableVie
             button.target = self
             button.action = action
         }
+        tabs.segmentStyle = .texturedSquare
+        tabs.controlSize = .small
+        tabs.font = .systemFont(ofSize: 12, weight: .medium)
+        for (index, symbol) in ["square.stack", "person.2", "music.note", "list.bullet"].enumerated() {
+            let image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?
+                .withSymbolConfiguration(.init(pointSize: 11, weight: .medium))
+            tabs.setImage(image, forSegment: index)
+        }
         tabs.target = self
         tabs.action = #selector(changeTab)
         search.delegate = self
         search.sendsSearchStringImmediately = true
         search.widthAnchor.constraint(equalToConstant: 185).isActive = true
         configure(plex, "Connect to Plex…", #selector(connect))
-        _ = bar([tabs, NSView(), search, plex])
+        plex.image = NSImage(systemSymbolName: "bolt.fill", accessibilityDescription: nil)?
+            .withSymbolConfiguration(.init(paletteColors: [.systemGreen]))
+        plex.imagePosition = .imageLeading
+        plex.bezelStyle = .texturedRounded
+        let toolbar = NSToolbar(identifier: "CueLibraryToolbar")
+        toolbar.delegate = self
+        toolbar.displayMode = .iconOnly
+        window.toolbarStyle = .unifiedCompact
+        window.toolbar = toolbar
+        bar(PlacesBar(views: [tabs, NSView(), search]), inset: 5)
         configure(backButton, "Back", #selector(back))
+        backButton.image = NSImage(systemSymbolName: "chevron.backward", accessibilityDescription: nil)
+        backButton.imagePosition = .imageOnly
+        backButton.isBordered = false
+        backButton.setAccessibilityLabel("Back")
+        backButton.toolTip = "Back (⌘[)"
         breadcrumbs.spacing = 5
         breadcrumbs.detachesHiddenViews = false
         status.font = .systemFont(ofSize: 11)
@@ -172,10 +210,10 @@ final class LibraryWindow: NSWindowController, NSTableViewDataSource, NSTableVie
         status.lineBreakMode = .byTruncatingTail
         status.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         configure(retry, "Retry", #selector(retryLoading))
-        _ = bar([backButton, breadcrumbs, NSView(), status, retry])
+        bar(NSStackView(views: [backButton, breadcrumbs, NSView(), status, retry]), inset: 4)
         table.style = .plain
-        table.usesAlternatingRowBackgroundColors = true
-        table.rowHeight = 22
+        table.usesAlternatingRowBackgroundColors = false
+        table.rowHeight = 20
         table.intercellSpacing = NSSize(width: 8, height: 1)
         table.allowsColumnReordering = false
         table.columnAutoresizingStyle = .lastColumnOnlyAutoresizingStyle
@@ -194,13 +232,31 @@ final class LibraryWindow: NSWindowController, NSTableViewDataSource, NSTableVie
         scroll.documentView = table
         root.addArrangedSubview(scroll)
         scroll.widthAnchor.constraint(equalTo: root.widthAnchor).isActive = true
-        let divider = NSBox()
-        divider.boxType = .separator
-        root.addArrangedSubview(divider)
-        divider.widthAnchor.constraint(equalTo: root.widthAnchor).isActive = true
+        divider()
         root.addArrangedSubview(transport)
         transport.widthAnchor.constraint(equalTo: root.widthAnchor).isActive = true
         window.initialFirstResponder = table
+    }
+
+    private static let connectionItem = NSToolbarItem.Identifier("CuePlexConnection")
+
+    func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
+        [.flexibleSpace, Self.connectionItem]
+    }
+
+    func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
+        toolbarDefaultItemIdentifiers(toolbar)
+    }
+
+    func toolbar(_ toolbar: NSToolbar, itemForItemIdentifier identifier: NSToolbarItem.Identifier,
+                 willBeInsertedIntoToolbar flag: Bool) -> NSToolbarItem? {
+        guard identifier == Self.connectionItem else { return nil }
+        let item = NSToolbarItem(itemIdentifier: identifier)
+        item.label = "Plex Connection"
+        item.target = self
+        item.action = #selector(connect)
+        item.view = plex
+        return item
     }
 
     private func selectTab(_ tab: Int) {
@@ -228,7 +284,7 @@ final class LibraryWindow: NSWindowController, NSTableViewDataSource, NSTableVie
             button.tag = index
             button.isBordered = false
             button.font = .systemFont(ofSize: 11)
-            button.contentTintColor = .linkColor
+            button.contentTintColor = .labelColor
             button.cell?.lineBreakMode = .byTruncatingTail
             button.toolTip = parent.screen.heading
             button.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
@@ -241,6 +297,7 @@ final class LibraryWindow: NSWindowController, NSTableViewDataSource, NSTableVie
         }
         let current = NSTextField(labelWithString: location.screen.heading)
         current.font = .systemFont(ofSize: 11, weight: .medium)
+        current.textColor = .linkColor
         current.lineBreakMode = .byTruncatingTail
         current.toolTip = location.screen.heading
         current.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
@@ -340,6 +397,7 @@ final class LibraryWindow: NSWindowController, NSTableViewDataSource, NSTableVie
                 } else {
                     rows = page.rows
                 }
+                window?.subtitle = store.section?.title ?? ""
                 plex.title = store.server == nil ? "Connect to Plex…" : "Plex Connection…"
                 updateCount()
             } catch {
@@ -473,7 +531,10 @@ final class LibraryWindow: NSWindowController, NSTableViewDataSource, NSTableVie
             }
         }
         let current = queueIndices.indices.contains(index) && queueIndices[index] == store.player.index
-        field.font = .systemFont(ofSize: 12, weight: current ? .semibold : .regular)
+        let weight: NSFont.Weight = current ? .semibold : .regular
+        let numeric = key == "Time" || key == "Year" || key == "No."
+        field.font = numeric ? .monospacedDigitSystemFont(ofSize: 12, weight: weight) : .systemFont(ofSize: 12, weight: weight)
+        field.textColor = numeric ? .secondaryLabelColor : .labelColor
         field.stringValue = value
         return cell
     }
@@ -584,6 +645,8 @@ final class LibraryWindow: NSWindowController, NSTableViewDataSource, NSTableVie
         if show, connection == nil {
             let sheet = NSWindow(contentViewController: ConnectionView(store: store))
             sheet.title = "Plex Connection"
+            sheet.appearance = NSAppearance(named: .darkAqua)
+            sheet.backgroundColor = .cuePanel
             sheet.styleMask = [.titled]
             connection = sheet
             window.beginSheet(sheet)

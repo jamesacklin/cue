@@ -32,8 +32,12 @@ final class ConnectionView: NSViewController {
             field.preferredMaxLayoutWidth = 355
             stack.addArrangedSubview(field)
         }
+        let actions = NSStackView()
+        actions.spacing = 8
         func button(_ title: String, _ action: Selector) {
-            stack.addArrangedSubview(NSButton(title: title, target: self, action: action))
+            let button = NSButton(title: title, target: self, action: action)
+            button.controlSize = .small
+            actions.addArrangedSubview(button)
         }
         if let message = store.connectionError { label(message) }
         if let activity = store.activity {
@@ -57,7 +61,10 @@ final class ConnectionView: NSViewController {
             label("Sign in through your browser to choose a Plex music library.")
             button("Sign In with Plex", #selector(signIn))
         }
+        actions.addArrangedSubview(NSView())
         button("Done", #selector(done))
+        stack.addArrangedSubview(actions)
+        actions.widthAnchor.constraint(equalTo: stack.widthAnchor, constant: -40).isActive = true
         preferredContentSize = stack.fittingSize
         view.window?.setContentSize(preferredContentSize)
     }
