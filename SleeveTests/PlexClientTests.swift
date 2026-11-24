@@ -58,12 +58,15 @@ private final class FixtureProtocol: URLProtocol {
             }
             if value("type") == "9", value("sort") != "album.titleSort" {
                 let sort = value("sort") ?? ""
-                let rows = [
-                    ["ratingKey": "1", "title": "First", "parentTitle": "Zulu"],
-                    ["ratingKey": "2", "title": "Second", "parentTitle": "Able"]
+                let rows: [[String: Any]] = [
+                    ["ratingKey": "1", "title": "First", "parentTitle": "Zulu", "year": 2001],
+                    ["ratingKey": "2", "title": "Second", "parentTitle": "Able", "year": 1995]
                 ]
-                let ordered: [[String: String]]
+                let ordered: [[String: Any]]
                 switch sort {
+                case "album.year,album.titleSort,album.id", "album.year:desc,album.titleSort,album.id":
+                    XCTAssertEqual(value("artist.id"), "44")
+                    ordered = sort.hasPrefix("album.year:desc") ? rows : Array(rows.reversed())
                 case "artist.titleSort,album.titleSort", "album.titleSort:desc": ordered = Array(rows.reversed())
                 case "artist.titleSort:desc,album.titleSort": ordered = rows
                 default: XCTFail("Unexpected album order: \(sort)"); ordered = rows
@@ -307,7 +310,7 @@ final class PlexClientTests: XCTestCase {
             table.keyDown(with: event)
         }
         try await waitUntil { cell("Album")?.stringValue == "Record 1" }
-        XCTAssertEqual(table.tableColumns.filter { $0.sortDescriptorPrototype != nil }.map(\.title), ["Album", "Artist"])
+        XCTAssertEqual(table.tableColumns.filter { $0.sortDescriptorPrototype != nil }.map(\.title), ["Album", "Artist", "Year"])
         for (key, ascending, title) in [("Artist", true, "Second"), ("Artist", false, "First"),
                                         ("Album", false, "Second"), ("Album", true, "Record 1")] {
             table.sortDescriptors = [NSSortDescriptor(key: key, ascending: ascending)]
@@ -332,11 +335,15 @@ final class PlexClientTests: XCTestCase {
         try await waitUntil { cell("Artist")?.stringValue == "The Band" }
         openFirst()
         try await waitUntil { cell("Album")?.stringValue == "Record 1" }
+        table.sortDescriptors = [NSSortDescriptor(key: "Year", ascending: true)]
+        try await waitUntil { cell("Year")?.stringValue == "1995" }
+        table.sortDescriptors = [NSSortDescriptor(key: "Year", ascending: false)]
+        try await waitUntil { cell("Year")?.stringValue == "2001" }
         openFirst()
         try await waitUntil { cell("Track")?.stringValue == "Prelude" }
         let artist = try XCTUnwrap(root.descendants(of: NSButton.self).first { $0.title == "The Band" })
         artist.performClick(nil)
-        try await waitUntil { cell("Album")?.stringValue == "Record 1" }
+        try await waitUntil { cell("Year")?.stringValue == "2001" }
         openFirst()
         try await waitUntil { cell("Track")?.stringValue == "Prelude" }
         let ancestor = try XCTUnwrap(root.descendants(of: NSButton.self).first { $0.title == "Artists" })
@@ -346,6 +353,49 @@ final class PlexClientTests: XCTestCase {
         switchTab(.tracks)
         XCTAssertEqual(table.sortDescriptors.first?.key, "Artist")
         XCTAssertEqual(table.sortDescriptors.first?.ascending, true)
+    }
+
+    @MainActor
+    func testTypingFromTablesFocusesSearchAndFiltersFromTheFirstKey() async throws {
+        let suite = "CueTyping-" + UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let controller = LibraryWindow(store: try await connectedStore(defaults: defaults))
+        let window = try XCTUnwrap(controller.window)
+        controller.showWindow(nil)
+        defer { controller.close() }
+        let root = try XCTUnwrap(window.contentView)
+        let table = try XCTUnwrap(root.descendants(of: NSTableView.self).first)
+        let search = try XCTUnwrap(root.descendants(of: NSSearchField.self).first)
+        func press(_ text: String, code: UInt16) throws {
+            let event = try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [],
+                                                       timestamp: 0, windowNumber: window.windowNumber, context: nil,
+                                                       characters: text, charactersIgnoringModifiers: text,
+                                                       isARepeat: false, keyCode: code))
+            window.sendEvent(event)
+        }
+        try await waitUntil { table.numberOfRows == 2 }
+        XCTAssertTrue(window.makeFirstResponder(table))
+        for (letter, code) in [("l", UInt16(37)), ("a", 0), ("r", 15), ("g", 5), ("e", 14)] {
+            try press(letter, code: code)
+        }
+        XCTAssertTrue(window.firstResponder === search.currentEditor())
+        XCTAssertEqual(search.stringValue, "large")
+        try await waitUntil { table.numberOfRows == 100_003 }
+
+        // Returning to the results makes the next typed character start a fresh query.
+        try press("\r", code: 36)
+        XCTAssertTrue(window.firstResponder === table)
+        try press("x", code: 7)
+        XCTAssertEqual(search.stringValue, "x")
+        try await waitUntil { table.numberOfRows == 2 }
+        try press("\r", code: 36)
+        try press("\r", code: 36)
+        try await waitUntil { table.tableColumns.first?.title == "No." && table.numberOfRows == 2 }
+        try press("u", code: 32)
+        try await waitUntil { table.numberOfRows == 1 }
+        let title = table.view(atColumn: 1, row: 0, makeIfNecessary: true) as? NSTableCellView
+        XCTAssertEqual(title?.textField?.stringValue, "Prelude")
     }
 
     @MainActor

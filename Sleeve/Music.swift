@@ -44,7 +44,7 @@ func timeLabel(_ seconds: Double) -> String {
 
 struct CatalogOrder: Equatable {
     enum Field: String {
-        case album = "Album", artist = "Artist", track = "Track", recent = "Recently Added"
+        case album = "Album", artist = "Artist", track = "Track", year = "Year", recent = "Recently Added"
     }
     let field: Field
     var ascending = true
@@ -63,10 +63,12 @@ struct CatalogOrder: Equatable {
         case .album: primary = "album.titleSort"
         case .artist: primary = "artist.titleSort"
         case .track: primary = "titleSort"
+        case .year: primary = "album.year"
         case .recent: primary = "album.addedAt"
         }
         var keys = [primary + (ascending ? "" : ":desc")]
         if field == .artist && catalog != .artists { keys.append("album.titleSort") }
+        if field == .year { keys += ["album.titleSort", "album.id"] }
         if catalog == .tracks && field != .track {
             keys += ["album.id", "track.absoluteIndex", "track.index"]
         }

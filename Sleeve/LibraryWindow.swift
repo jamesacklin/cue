@@ -60,9 +60,23 @@ private final class LibraryCell: NSTableCellView {
 
 private final class MusicTable: NSTableView {
     var openSelection: (() -> Void)?
+    weak var searchField: NSSearchField?
+
     override func keyDown(with event: NSEvent) {
-        if event.keyCode == 36 || event.keyCode == 76 { openSelection?() }
-        else { super.keyDown(with: event) }
+        if event.keyCode == 36 || event.keyCode == 76 {
+            openSelection?()
+            return
+        }
+        guard event.modifierFlags.intersection([.command, .control]).isEmpty,
+              event.specialKey == nil, let keys = event.charactersIgnoringModifiers,
+              keys.rangeOfCharacter(from: CharacterSet.controlCharacters.union(.whitespacesAndNewlines).inverted) != nil,
+              let searchField, window?.makeFirstResponder(searchField) == true,
+              let editor = searchField.currentEditor() else {
+            super.keyDown(with: event)
+            return
+        }
+        editor.selectAll(nil)
+        editor.keyDown(with: event)
     }
 }
 
@@ -169,6 +183,7 @@ final class LibraryWindow: NSWindowController, NSTableViewDataSource, NSTableVie
         table.delegate = self
         table.target = self
         table.doubleAction = #selector(doubleClick)
+        table.searchField = search
         table.openSelection = { [weak self] in self?.act() }
         let scroll = NSScrollView()
         scroll.contentView.postsBoundsChangedNotifications = true
@@ -490,7 +505,7 @@ final class LibraryWindow: NSWindowController, NSTableViewDataSource, NSTableVie
     }
     private func sortable(_ column: String) -> Bool {
         switch location.screen.catalogRequest?.kind {
-        case .albums: return column == "Album" || column == "Artist"
+        case .albums: return column == "Album" || column == "Artist" || column == "Year"
         case .tracks: return column == "Album" || column == "Artist" || column == "Track"
         default: return false
         }
