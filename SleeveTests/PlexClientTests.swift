@@ -45,6 +45,10 @@ private final class FixtureProtocol: URLProtocol {
             }
         case "/library/sections/4/all":
             if value("type") == "10" {
+                XCTAssertEqual(request.value(forHTTPHeaderField: "X-Plex-Pms-Api-Version"), "1.0")
+                let fields = Set((value("includeFields") ?? "").components(separatedBy: ","))
+                XCTAssertTrue(Set(["ratingKey", "parentRatingKey", "size", "offset", "totalSize", "key"]).isSubset(of: fields))
+                XCTAssertEqual(value("includeElements"), "Metadata,Media,Part")
                 XCTAssertTrue(url.absoluteString.contains("%2B"))
                 XCTAssertEqual(value("track.title"), "Blue + Gold & Silver")
                 XCTAssertEqual(value("artist.title"), "Blue + Gold & Silver")
@@ -56,7 +60,7 @@ private final class FixtureProtocol: URLProtocol {
                 break
             }
             XCTAssertEqual(value("type"), "9")
-            XCTAssertEqual(value("X-Plex-Container-Size"), "100")
+            XCTAssertEqual(value("X-Plex-Container-Size"), String(CatalogPage.capacity))
             let offset = Int(value("X-Plex-Container-Start") ?? "")!
             var row: [String: Any] = ["ratingKey": "\(offset + 1)", "title": "Record \(offset + 1)",
                                       "parentTitle": "The Band", "year": 2025]
@@ -168,8 +172,8 @@ final class PlexClientTests: XCTestCase {
         let section = LibrarySection(key: "8", title: "Music", type: "artist")
         let page = try await client.page(.artists, section: section, on: server, query: "", offset: 500_000)
         XCTAssertEqual(page.total, 1_000_000)
-        XCTAssertEqual(page.rows.count, 100)
-        XCTAssertEqual(page.next, 500_100)
+        XCTAssertEqual(page.rows.count, CatalogPage.capacity)
+        XCTAssertEqual(page.next, 500_000 + CatalogPage.capacity)
         XCTAssertEqual(page.rows.first?.title, "Artist 500000")
         let end = try await client.page(.artists, section: section, on: server, query: "", offset: 999_997)
         XCTAssertEqual(end.rows.count, 3)

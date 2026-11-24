@@ -15,6 +15,7 @@ final class Player: ObservableObject {
     }
     private var engine: AVPlayer?
     private var clock: Any?
+    private var progressVisible = true
     private var end: AnyCancellable?
     private var failure: AnyCancellable?
     private var itemStatus: NSKeyValueObservation?
@@ -29,19 +30,7 @@ final class Player: ObservableObject {
         let audio = AVPlayer()
         engine = audio
         audio.volume = Float(volume)
-        clock = audio.addPeriodicTimeObserver(forInterval: CMTime(seconds: 1, preferredTimescale: 600),
-                                              queue: .main) { [weak self] _ in
-            Task { @MainActor in
-                guard let self, let item = self.engine?.currentItem else { return }
-                let seconds = item.currentTime().seconds
-                if seconds.isFinite { self.elapsed = max(0, seconds) }
-                let duration = item.duration.seconds
-                if duration.isFinite, duration > 0 {
-                    let measured = (duration * 1000).rounded() / 1000
-                    if self.length != measured { self.length = measured }
-                }
-            }
-        }
+        updateClock()
         playStatus = audio.observe(\.timeControlStatus, options: [.new]) { [weak self] _, _ in
             Task { @MainActor in
                 guard let self else { return }
@@ -49,6 +38,35 @@ final class Player: ObservableObject {
             }
         }
         return audio
+    }
+
+    func setProgressVisible(_ visible: Bool) {
+        guard progressVisible != visible else { return }
+        progressVisible = visible
+        updateClock()
+    }
+
+    private func updateClock() {
+        guard let audio = engine else { return }
+        if !progressVisible {
+            if let clock { audio.removeTimeObserver(clock) }
+            clock = nil
+            return
+        }
+        guard clock == nil else { return }
+        clock = audio.addPeriodicTimeObserver(forInterval: CMTime(seconds: 1, preferredTimescale: 600),
+                                              queue: .main) { [weak self] time in
+            MainActor.assumeIsolated {
+                guard let self, let item = self.engine?.currentItem else { return }
+                let seconds = time.seconds
+                if seconds.isFinite, seconds != self.elapsed { self.elapsed = max(0, seconds) }
+                let duration = item.duration.seconds
+                if duration.isFinite, duration > 0 {
+                    let measured = (duration * 1000).rounded() / 1000
+                    if self.length != measured { self.length = measured }
+                }
+            }
+        }
     }
 
     func replace(_ entries: [QueueEntry], startingAt index: Int) {
@@ -102,7 +120,8 @@ final class Player: ObservableObject {
 
     func previous() {
         guard let index else { return }
-        if elapsed > 3 || index == 0 { seek(to: 0) }
+        let position = engine?.currentTime().seconds ?? elapsed
+        if position > 3 || index == 0 { seek(to: 0) }
         else { select(index - 1) }
     }
 

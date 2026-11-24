@@ -310,15 +310,26 @@ struct PlexClient {
 
     private func readPage(_ kind: Catalog, path: String, on server: PlexServer, filters: [URLQueryItem],
                           offset: Int, parent: Album? = nil) async throws -> CatalogPage {
+        // Request only the fields used in text rows and the first playable media part.
+        let fields: String
+        switch kind {
+        case .artists: fields = "ratingKey,title"
+        case .albums: fields = "ratingKey,title,parentTitle,year"
+        case .tracks: fields = "ratingKey,title,parentRatingKey,parentTitle,grandparentTitle,originalTitle,parentIndex,index,duration,key"
+        }
         let size = CatalogPage.capacity
         let url = try server.url(for: path).appending(queryItems: filters + [
+            URLQueryItem(name: "includeFields", value: "size,offset,totalSize," + fields),
+            URLQueryItem(name: "includeElements", value: kind == .tracks ? "Metadata,Media,Part" : "Metadata"),
             URLQueryItem(name: "X-Plex-Container-Start", value: String(offset)),
             URLQueryItem(name: "X-Plex-Container-Size", value: String(size))
         ])
         var components = URLComponents(url: url, resolvingAgainstBaseURL: false)!
         // PMS decodes query parameters as form data, where a literal plus means a space.
         components.percentEncodedQuery = components.percentEncodedQuery?.replacingOccurrences(of: "+", with: "%2B")
-        let result = try await metadata(request(components.url!, token: server.token), kind: kind)
+        var pageRequest = request(components.url!, token: server.token)
+        pageRequest.setValue("1.0", forHTTPHeaderField: "X-Plex-Pms-Api-Version")
+        let result = try await metadata(pageRequest, kind: kind)
         try Task.checkCancellation()
         let batch = result.Metadata ?? []
         // Older endpoints may ignore pagination and return the complete list.

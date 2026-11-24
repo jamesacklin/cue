@@ -54,6 +54,21 @@ final class PlaybackTests: XCTestCase {
         XCTAssertNil(player.current)
     }
 
+    func testHiddenProgressKeepsPlayingAndResumesAtCurrentPosition() async throws {
+        let player = Player()
+        player.volume = 0
+        defer { player.reset() }
+        let album = Sample.albums[0]
+        let track = try XCTUnwrap(Sample.tracks(for: album).first)
+        player.setProgressVisible(false)
+        player.replace([QueueEntry(track: track, album: album, url: try XCTUnwrap(track.localFile))], startingAt: 0)
+        try await wait { player.audio.currentTime().seconds >= 1.2 }
+        XCTAssertEqual(player.elapsed, 0)
+        player.setProgressVisible(true)
+        try await wait { player.elapsed >= 1 }
+        XCTAssertTrue(player.playing)
+    }
+
     private func wait(until ready: () -> Bool) async throws {
         let deadline = Date().addingTimeInterval(8)
         while !ready() {

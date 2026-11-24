@@ -105,7 +105,7 @@ enum MusicRow {
 }
 
 struct CatalogPage {
-    static let capacity = 100
+    static let capacity = 50
     let rows: [MusicRow]
     let total: Int?
     let next: Int?

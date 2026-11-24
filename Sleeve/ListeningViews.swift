@@ -12,7 +12,7 @@ final class Transport: NSStackView {
     private var playButton: NSButton!
     private var previousButton: NSButton!
     private var nextButton: NSButton!
-    private var observation: AnyCancellable?
+    private var subscriptions = Set<AnyCancellable>()
 
     init(player: Player) {
         self.player = player
@@ -61,23 +61,33 @@ final class Transport: NSStackView {
         addArrangedSubview(controls)
         controls.widthAnchor.constraint(equalTo: widthAnchor, constant: -24).isActive = true
         title.widthAnchor.constraint(lessThanOrEqualTo: controls.widthAnchor).isActive = true
-        render()
-        observation = player.objectWillChange.receive(on: RunLoop.main).sink { [weak self] in self?.render() }
+        // A clock tick only moves the scrubber and the time label.
+        Publishers.CombineLatest(player.$elapsed, player.$length)
+            .sink { [weak self] elapsed, length in self?.renderTime(elapsed, length) }
+            .store(in: &subscriptions)
+        Publishers.CombineLatest4(player.$queue, player.$index, player.$playing, player.$error)
+            .sink { [weak self] queue, index, playing, error in
+                let current = index.flatMap { queue.indices.contains($0) ? queue[$0] : nil }
+                self?.render(current, playing: playing, error: error, hasNext: index.map { $0 + 1 < queue.count } ?? false)
+            }.store(in: &subscriptions)
     }
     required init?(coder: NSCoder) { fatalError() }
 
-    private func render() {
-        let current = player.current
-        title.stringValue = player.error ?? current.map { "\($0.track.artist) — \($0.track.title)" } ?? "Stopped"
+    private func render(_ current: QueueEntry?, playing: Bool, error: String?, hasNext: Bool) {
+        title.stringValue = error ?? current.map { "\($0.track.artist) — \($0.track.title)" } ?? "Stopped"
         title.toolTip = title.stringValue
-        playButton.title = player.playing ? "Pause" : "Play"
+        playButton.title = playing ? "Pause" : "Play"
         previousButton.isEnabled = current != nil
         playButton.isEnabled = current != nil
-        nextButton.isEnabled = player.hasNext
-        seek.isEnabled = current != nil && player.length > 0
-        seek.maxValue = max(1, player.length)
-        if !seek.isHighlighted { seek.doubleValue = player.elapsed }
-        time.stringValue = "\(timeLabel(player.elapsed)) / \(timeLabel(player.length.rounded()))"
+        nextButton.isEnabled = hasNext
+    }
+
+    private func renderTime(_ elapsed: Double, _ length: Double) {
+        let maximum = max(1, length)
+        if seek.maxValue != maximum { seek.maxValue = maximum }
+        seek.isEnabled = player.current != nil && length > 0
+        if !seek.isHighlighted { seek.doubleValue = elapsed }
+        time.stringValue = "\(timeLabel(elapsed)) / \(timeLabel(length.rounded()))"
     }
     @objc private func previous() { player.previous() }
     @objc private func toggle() { player.toggle() }

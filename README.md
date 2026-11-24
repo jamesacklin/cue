@@ -15,9 +15,22 @@ Press **⌘F** to search the current view. Album and track searches include arti
 
 ## Memory
 
-The library browser requests 100 rows at a time. Paging and searching replace the current result set, and Plex performs library-wide filtering and sorting. Metadata responses bypass the URL cache. Opening or playing an album loads its track list. AVFoundation creates a player on demand and streams one media part at a time. Clearing the queue releases the player. The app has no third-party runtime dependencies, cover cache, artwork requests, or visualization renderer.
+The library browser requests 50 rows at a time and asks Plex for the fields needed for each view. Paging and searching replace the current result set, and Plex performs library-wide filtering and sorting. Metadata responses bypass the URL cache. Opening or playing an album loads its track list. AVFoundation creates a player on demand and streams one media part at a time. Clearing the queue releases the player. Hiding or minimizing the window suspends the progress clock while audio continues. The app has no third-party runtime dependencies, cover cache, artwork requests, or visualization renderer.
 
-On Apple silicon with macOS 26.5.2, three fresh Release launches of the six-album sample measured 27, 29 and 30 MB of physical footprint. The baseline shelf measured 39, 40 and 40 MB. Measurements used `footprint -p PID` five seconds after launch, with playback stopped and account restoration skipped in the baseline. These figures describe the app process on this machine.
+In the initial text-only release (91be935), three fresh launches of the six-album sample on Apple silicon with macOS 26.5.2 measured 27, 29 and 30 MB of physical footprint. The baseline shelf measured 39, 40 and 40 MB. Measurements used `footprint -p PID` five seconds after launch, with playback stopped and account restoration skipped in the baseline. These figures describe the app process on this machine.
+
+### Live library measurements
+
+On an Apple M1 running macOS 26.5.2, a 4,633-album Plex library produced the following results. Each column gives the median of three fresh Release runs. Footprint is the median of repeated macOS `footprint -p PID` samples within each phase. CPU is player-process CPU time divided by wall time, where 100% is one core.
+
+| Activity | Previous footprint | Current footprint | Previous CPU | Current CPU |
+| --- | ---: | ---: | ---: | ---: |
+| Album list, idle | 33 MB | 33 MB | 0.02% | 0.03% |
+| Six track searches | 38 MB | 35 MB | 4.91% | 4.01% |
+| Direct playback | 43 MB | 42 MB | 1.06% | 1.46% |
+| Same searches during playback | 45 MB | 42 MB | 6.57% | 5.61% |
+
+The benchmark drove the AppKit search handler with successive prefixes of six terms, waited for each result page, and played the same remote track at zero volume. The playback-only phase sampled ten seconds after the clock had advanced. The prior build (91be935) returned 100 rows per page and the current build returns 50. Match totals were identical. Across the six searches the decoded HTTP response bodies fell from 818,952 to 109,862 bytes. These figures cover the client process and exclude server CPU and system audio services.
 
 ## Build and run
 
