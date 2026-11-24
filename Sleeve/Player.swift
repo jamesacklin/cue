@@ -13,7 +13,7 @@ final class Player: ObservableObject {
     @Published var volume: Double = 0.7 {
         didSet { audio.volume = Float(volume) }
     }
-    private let audio = AVPlayer()
+    let audio = AVPlayer()
     private var clock: Any?
     private var end: AnyCancellable?
     private var failure: AnyCancellable?

@@ -1,3 +1,4 @@
+import AVKit
 import SwiftUI
 
 struct AlbumDetail: View {
@@ -126,6 +127,22 @@ struct QueueView: View {
     }
 }
 
+private struct AirPlayPicker: NSViewRepresentable {
+    let player: AVPlayer
+
+    func makeNSView(context: Context) -> AVRoutePickerView {
+        let picker = AVRoutePickerView()
+        picker.isRoutePickerButtonBordered = false
+        picker.toolTip = "Choose AirPlay output"
+        picker.player = player
+        return picker
+    }
+
+    func updateNSView(_ picker: AVRoutePickerView, context: Context) {
+        if picker.player !== player { picker.player = player }
+    }
+}
+
 struct Transport: View {
     @ObservedObject var player: Player
     let showQueue: () -> Void
@@ -181,6 +198,7 @@ struct Transport: View {
                     Image(systemName: player.volume == 0 ? "speaker.slash.fill" : "speaker.wave.2.fill")
                         .foregroundStyle(.secondary)
                     Slider(value: $player.volume, in: 0...1).controlSize(.small).frame(width: 74).accessibilityLabel("Volume")
+                    AirPlayPicker(player: player.audio).frame(width: 26, height: 26)
                     control("Show play queue", image: "music.note.list", action: showQueue).padding(.leading, 7)
                 }.frame(maxWidth: .infinity, alignment: .trailing)
             }.padding(.horizontal, 20).padding(.vertical, 10)
