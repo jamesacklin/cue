@@ -23,12 +23,13 @@ final class LibraryStore: ObservableObject {
     private var job: Task<Void, Never>?
     private var albumPlayback: Task<Void, Never>?
     private var didRestore = false
-    private let defaults = UserDefaults.standard
+    private let defaults: UserDefaults
 
-    init() {
+    init(client: PlexClient? = nil, defaults: UserDefaults = .standard) {
+        self.defaults = defaults
         let id = defaults.string(forKey: "clientID") ?? UUID().uuidString
         defaults.set(id, forKey: "clientID")
-        client = PlexClient(identifier: id)
+        self.client = client ?? PlexClient(identifier: id)
     }
 
     func restore() {

@@ -57,18 +57,21 @@ final class Player: ObservableObject {
             return
         }
         guard clock == nil else { return }
-        clock = audio.addPeriodicTimeObserver(forInterval: CMTime(seconds: 1, preferredTimescale: 600),
-                                              queue: .main) { [weak self] time in
-            MainActor.assumeIsolated {
-                guard let self, let item = self.engine?.currentItem else { return }
-                let seconds = time.seconds
-                if seconds.isFinite, seconds != self.elapsed { self.elapsed = max(0, seconds) }
-                let duration = item.duration.seconds
-                if duration.isFinite, duration > 0 {
-                    let measured = (duration * 1000).rounded() / 1000
-                    if self.length != measured { self.length = measured }
-                }
-            }
+        syncProgress()
+        clock = audio.addPeriodicTimeObserver(forInterval: CMTime(value: 1, timescale: 2), queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.syncProgress() }
+        }
+    }
+
+    private func syncProgress() {
+        guard progressVisible, let item = engine?.currentItem else { return }
+        // Read the current item even if a callback was queued before a seek or track change.
+        let seconds = item.currentTime().seconds
+        if seconds.isFinite, seconds >= 0, seconds != elapsed { elapsed = seconds }
+        let duration = item.duration.seconds
+        if duration.isFinite, duration > 0 {
+            let measured = (duration * 1000).rounded() / 1000
+            if measured != length { length = measured }
         }
     }
 

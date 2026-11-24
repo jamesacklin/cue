@@ -4,6 +4,14 @@ import Combine
 private enum Screen {
     case catalog(Catalog), artist(id: String, name: String), album(Album), queue
 
+    var catalogRequest: (kind: Catalog, artistID: String?)? {
+        switch self {
+        case .catalog(let kind): return (kind, nil)
+        case .artist(let id, _): return (.albums, id)
+        default: return nil
+        }
+    }
+
     var heading: String {
         switch self {
         case .catalog(let kind): kind.title
@@ -25,8 +33,7 @@ private enum Screen {
 private struct Location {
     var screen: Screen
     var query = ""
-    var offset = 0
-    var previousOffsets: [Int] = []
+    var firstVisibleRow = 0
 }
 
 private final class MusicTable: NSTableView {
@@ -46,8 +53,6 @@ final class LibraryWindow: NSWindowController, NSTableViewDataSource, NSTableVie
     private let heading = NSTextField(labelWithString: "")
     private let status = NSTextField(labelWithString: "")
     private let backButton = NSButton()
-    private let earlier = NSButton()
-    private let later = NSButton()
     private lazy var transport = Transport(player: store.player, target: self, action: #selector(toggle))
     private let retry = NSButton()
     private let plex = NSButton()
@@ -59,7 +64,9 @@ final class LibraryWindow: NSWindowController, NSTableViewDataSource, NSTableVie
     private var albumTracks: [Track]?
     private var queueIndices: [Int] = []
     private var loading = false
-    private var nextOffset: Int?
+    private var catalog = CatalogRows()
+    private var pendingOffset: Int?
+    private var failedOffset: Int?
     private var job: Task<Void, Never>?
     private var subscriptions = Set<AnyCancellable>()
 
@@ -137,6 +144,9 @@ final class LibraryWindow: NSWindowController, NSTableViewDataSource, NSTableVie
         table.doubleAction = #selector(doubleClick)
         table.openSelection = { [weak self] in self?.act() }
         let scroll = NSScrollView()
+        scroll.contentView.postsBoundsChangedNotifications = true
+        NotificationCenter.default.publisher(for: NSView.boundsDidChangeNotification, object: scroll.contentView)
+            .sink { [weak self] _ in self?.loadVisibleRows() }.store(in: &subscriptions)
         scroll.hasVerticalScroller = true
         scroll.autohidesScrollers = true
         scroll.documentView = table
@@ -145,10 +155,8 @@ final class LibraryWindow: NSWindowController, NSTableViewDataSource, NSTableVie
         status.font = .systemFont(ofSize: 11)
         status.lineBreakMode = .byTruncatingTail
         status.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        configure(earlier, "Previous Page", #selector(previousPage))
-        configure(later, "Next Page", #selector(nextPage))
-        configure(retry, "Retry", #selector(refresh))
-        _ = bar([backButton, heading, status, retry, NSView(), earlier, later])
+        configure(retry, "Retry", #selector(retryLoading))
+        _ = bar([backButton, heading, status, retry, NSView()])
         let divider = NSBox()
         divider.boxType = .separator
         root.addArrangedSubview(divider)
@@ -164,6 +172,7 @@ final class LibraryWindow: NSWindowController, NSTableViewDataSource, NSTableVie
         navigate(Location(screen: Catalog(rawValue: tab).map(Screen.catalog) ?? .queue))
     }
     private func open(_ screen: Screen) {
+        location.firstVisibleRow = visibleRows.lowerBound
         history.append(location)
         navigate(Location(screen: screen))
     }
@@ -193,19 +202,18 @@ final class LibraryWindow: NSWindowController, NSTableViewDataSource, NSTableVie
 
     private func reload(debounce: Bool = false) {
         job?.cancel()
-        if !debounce {
-            rows = []
-            queueIndices = []
-            table.reloadData()
-        }
-        if !loading || !debounce {
-            loading = true
-            nextOffset = nil
-            retry.isHidden = true
-            table.deselectAll(nil)
-            updateActions()
-            status.stringValue = "Loading…"
-        }
+        loading = true
+        pendingOffset = nil
+        failedOffset = nil
+        retry.isHidden = true
+        catalog = CatalogRows()
+        rows = []
+        queueIndices = []
+        table.deselectAll(nil)
+        table.reloadData()
+        updateActions()
+        status.stringValue = "Loading…"
+        status.toolTip = nil
         let request = location
         let revision = store.revision
         job = Task {
@@ -215,9 +223,9 @@ final class LibraryWindow: NSWindowController, NSTableViewDataSource, NSTableVie
                 var positions: [Int] = []
                 switch request.screen {
                 case .catalog(let kind):
-                    page = try await store.catalog(kind, query: request.query, offset: request.offset, artistID: nil, order: order)
+                    page = try await store.catalog(kind, query: request.query, offset: request.firstVisibleRow, artistID: nil, order: order)
                 case .artist(let id, _):
-                    page = try await store.catalog(.albums, query: request.query, offset: request.offset, artistID: id, order: order)
+                    page = try await store.catalog(.albums, query: request.query, offset: request.firstVisibleRow, artistID: id, order: order)
                 case .album(let album):
                     let tracks: [Track]
                     if let albumTracks { tracks = albumTracks }
@@ -240,19 +248,14 @@ final class LibraryWindow: NSWindowController, NSTableViewDataSource, NSTableVie
                 try Task.checkCancellation()
                 guard revision == store.revision else { return }
                 queueIndices = positions
-                rows = page.rows
-                nextOffset = page.next
-                plex.title = store.server == nil ? "Connect to Plex…" : "Plex Connection…"
-                let count: String
-                if rows.isEmpty {
-                    count = request.query.isEmpty ? "No items" : "No matches"
-                } else if request.offset > 0 || page.next != nil {
-                    count = "\(request.offset + 1)–\(request.offset + rows.count)" + (page.total.map { " of \($0)" } ?? "")
+                if request.screen.catalogRequest != nil {
+                    let offset = request.firstVisibleRow
+                    catalog.insert(page, at: offset, near: offset..<(offset + 1), selected: -1)
                 } else {
-                    count = "\(rows.count) " + (rows.count == 1 ? "item" : "items")
+                    rows = page.rows
                 }
-                status.stringValue = count
-                status.toolTip = nil
+                plex.title = store.server == nil ? "Connect to Plex…" : "Plex Connection…"
+                updateCount()
             } catch {
                 guard !Task.isCancelled, revision == store.revision else { return }
                 rows = []
@@ -261,26 +264,89 @@ final class LibraryWindow: NSWindowController, NSTableViewDataSource, NSTableVie
                 status.toolTip = status.stringValue
                 retry.isHidden = false
             }
-            loading = false
-            table.deselectAll(nil)
             table.reloadData()
-            table.scroll(.zero)
+            let anchor = min(request.firstVisibleRow, numberOfRows(in: table) - 1)
+            table.scroll(anchor > 0 ? table.rect(ofRow: anchor).origin : .zero)
+            loading = false
+            loadVisibleRows()
             updateActions()
         }
     }
 
+    private var visibleRows: Range<Int> {
+        let range = table.rows(in: table.visibleRect)
+        guard range.length > 0 else { return 0..<0 }
+        return range.location..<NSMaxRange(range)
+    }
+
+    private func loadVisibleRows() {
+        guard !loading, let request = location.screen.catalogRequest else { return }
+        let visible = visibleRows
+        let needed = catalog.neededOffset(for: visible)
+        guard needed != pendingOffset else { return }
+        job?.cancel()
+        pendingOffset = nil
+        guard let offset = needed, offset != failedOffset else { return }
+        pendingOffset = offset
+        let revision = store.revision
+        job = Task {
+            do {
+                let page = try await store.catalog(request.kind, query: location.query, offset: offset,
+                                                   artistID: request.artistID, order: order)
+                try Task.checkCancellation()
+                guard revision == store.revision else { return }
+                let oldCount = catalog.count
+                catalog.insert(page, at: offset, near: visibleRows, selected: table.selectedRow)
+                // Keep bounds notifications from starting another request during table updates.
+                loading = true
+                if oldCount != catalog.count { table.noteNumberOfRowsChanged() }
+                let end = min(offset + page.rows.count, catalog.count)
+                if offset < end {
+                    table.reloadData(forRowIndexes: IndexSet(integersIn: offset..<end),
+                                     columnIndexes: IndexSet(integersIn: 0..<table.numberOfColumns))
+                }
+                failedOffset = nil
+                retry.isHidden = true
+                updateCount()
+                loading = false
+                pendingOffset = nil
+                updateActions()
+                loadVisibleRows()
+            } catch {
+                guard !Task.isCancelled, revision == store.revision else { return }
+                pendingOffset = nil
+                failedOffset = offset
+                status.stringValue = error.localizedDescription
+                status.toolTip = status.stringValue
+                retry.isHidden = false
+            }
+        }
+    }
+
+    private func updateCount() {
+        let count = location.screen.catalogRequest == nil ? rows.count : catalog.total
+        if let count {
+            status.stringValue = count == 0 ? (location.query.isEmpty ? "No items" : "No matches")
+                : "\(count) " + (count == 1 ? "item" : "items")
+        } else {
+            status.stringValue = "\(catalog.count - 1)+ items"
+        }
+        status.toolTip = nil
+    }
+
+    private func row(at index: Int) -> MusicRow? {
+        if location.screen.catalogRequest != nil { return catalog.cached[index] }
+        return rows.indices.contains(index) ? rows[index] : nil
+    }
+
     private func updateActions() {
-        earlier.isHidden = location.previousOffsets.isEmpty && nextOffset == nil
-        later.isHidden = earlier.isHidden
-        earlier.isEnabled = !location.previousOffsets.isEmpty
-        later.isEnabled = nextOffset != nil
         transport.canStartSelection = canStartSelection
     }
 
     private var canStartSelection: Bool {
         guard !loading else { return false }
-        if rows.indices.contains(table.selectedRow) {
-            if case .artist = rows[table.selectedRow] { return false }
+        if let selected = row(at: table.selectedRow) {
+            if case .artist = selected { return false }
             return true
         }
         if case .album = location.screen {
@@ -289,10 +355,12 @@ final class LibraryWindow: NSWindowController, NSTableViewDataSource, NSTableVie
         return false
     }
 
-    func numberOfRows(in tableView: NSTableView) -> Int { rows.count }
+    func numberOfRows(in tableView: NSTableView) -> Int {
+        location.screen.catalogRequest == nil ? rows.count : catalog.count
+    }
 
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row index: Int) -> NSView? {
-        guard rows.indices.contains(index), let column = tableColumn?.identifier else { return nil }
+        guard let column = tableColumn?.identifier else { return nil }
         let field: NSTextField
         if let reused = tableView.makeView(withIdentifier: column, owner: nil) as? NSTextField {
             field = reused
@@ -304,7 +372,8 @@ final class LibraryWindow: NSWindowController, NSTableViewDataSource, NSTableVie
         }
         let key = column.rawValue
         let value: String
-        switch rows[index] {
+        switch row(at: index) {
+        case nil: value = column == table.tableColumns.first?.identifier ? "Loading…" : ""
         case .album(let album):
             switch key {
             case "Album": value = album.title
@@ -331,34 +400,31 @@ final class LibraryWindow: NSWindowController, NSTableViewDataSource, NSTableVie
         let query = search.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
         guard location.query != query else { return }
         location.query = query
-        location.offset = 0
-        location.previousOffsets = []
+        location.firstVisibleRow = 0
         reload(debounce: true)
     }
     func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
         guard selector == #selector(NSResponder.insertNewline(_:)) || selector == #selector(NSResponder.moveDown(_:)) else { return false }
         window?.makeFirstResponder(table)
-        if !rows.isEmpty { table.selectRowIndexes(IndexSet(integer: 0), byExtendingSelection: false) }
+        if numberOfRows(in: table) > 0 { table.selectRowIndexes(IndexSet(integer: 0), byExtendingSelection: false) }
         return true
     }
     @objc private func changeTab() { selectTab(tabs.selectedSegment) }
     @objc func back() { if let last = history.popLast() { navigate(last) } }
-    @objc private func previousPage() {
-        guard let previous = location.previousOffsets.popLast() else { return }
-        location.offset = previous
-        reload()
-    }
-    @objc private func nextPage() {
-        guard let nextOffset else { return }
-        location.previousOffsets.append(location.offset)
-        location.offset = nextOffset
-        reload()
+    @objc private func retryLoading() {
+        if failedOffset != nil {
+            failedOffset = nil
+            retry.isHidden = true
+            updateCount()
+            loadVisibleRows()
+        } else {
+            reload()
+        }
     }
     @objc func setOrder(_ sender: NSMenuItem) {
         guard let selected = AlbumOrder(rawValue: sender.tag) else { return }
         order = selected
-        location.previousOffsets = []
-        location.offset = 0
+        location.firstVisibleRow = 0
         reload()
     }
     @objc func refresh() { albumTracks = nil; reload() }
@@ -368,7 +434,7 @@ final class LibraryWindow: NSWindowController, NSTableViewDataSource, NSTableVie
         if store.player.current != nil {
             store.player.toggle()
         } else if canStartSelection {
-            if rows.indices.contains(table.selectedRow), case .album(let album) = rows[table.selectedRow] {
+            if case .album(let album) = row(at: table.selectedRow) {
                 store.playAlbum(album)
             } else {
                 act()
@@ -388,8 +454,8 @@ final class LibraryWindow: NSWindowController, NSTableViewDataSource, NSTableVie
             store.play(tracks, from: first.id, album: album)
             return
         }
-        guard rows.indices.contains(index) else { return }
-        switch rows[index] {
+        guard let selected = row(at: index) else { return }
+        switch selected {
         case .artist(let id, let name): open(.artist(id: id, name: name))
         case .album(let album): open(.album(album))
         case .track(let track, let album):

@@ -2,12 +2,22 @@ import AppKit
 import AVKit
 import Combine
 
+private final class SeekSlider: NSSlider {
+    private(set) var isScrubbing = false
+
+    override func mouseDown(with event: NSEvent) {
+        isScrubbing = true
+        defer { isScrubbing = false }
+        super.mouseDown(with: event)
+    }
+}
+
 @MainActor
 final class Transport: NSStackView, @preconcurrency AVRoutePickerViewDelegate {
     let player: Player
     private let title = NSTextField(labelWithString: "")
     private let time = NSTextField(labelWithString: "")
-    private let seek = NSSlider()
+    private let seek = SeekSlider()
     private let volume = NSSlider()
     private var playButton: NSButton!
     private var previousButton: NSButton!
@@ -59,6 +69,8 @@ final class Transport: NSStackView, @preconcurrency AVRoutePickerViewDelegate {
         controls.setCustomSpacing(12, after: airPlay)
         player.routePlayer.sink { [weak airPlay] engine in airPlay?.player = engine }
             .store(in: &subscriptions)
+        seek.isVertical = false
+        seek.trackFillColor = .controlAccentColor
         seek.controlSize = .small
         seek.setAccessibilityLabel("Playback position")
         seek.isContinuous = false
@@ -111,8 +123,9 @@ final class Transport: NSStackView, @preconcurrency AVRoutePickerViewDelegate {
         let maximum = max(1, length)
         if seek.maxValue != maximum { seek.maxValue = maximum }
         seek.isEnabled = player.current != nil && length > 0
-        if !seek.isHighlighted { seek.doubleValue = elapsed }
-        time.stringValue = "\(timeLabel(elapsed)) / \(timeLabel(length.rounded()))"
+        if !seek.isScrubbing, seek.doubleValue != elapsed { seek.doubleValue = elapsed }
+        let display = "\(timeLabel(elapsed)) / \(timeLabel(length.rounded()))"
+        if time.stringValue != display { time.stringValue = display }
     }
     @objc private func previous() { player.previous() }
     func routePickerViewWillBeginPresentingRoutes(_ routePickerView: AVRoutePickerView) {

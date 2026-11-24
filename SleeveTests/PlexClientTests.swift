@@ -1,3 +1,4 @@
+import AppKit
 import XCTest
 @testable import Sleeve
 
@@ -44,6 +45,15 @@ private final class FixtureProtocol: URLProtocol {
                 ]]]
             }
         case "/library/sections/4/all":
+            if value("album.title") == "large" {
+                let start = Int(value("X-Plex-Container-Start")!)!
+                let total = 100_003
+                let rows = (start..<min(start + CatalogPage.capacity, total)).map {
+                    ["ratingKey": String($0), "title": "Large album \($0)"]
+                }
+                json = ["MediaContainer": ["totalSize": total, "offset": start, "Metadata": rows]]
+                break
+            }
             if value("type") == "10" {
                 XCTAssertEqual(request.value(forHTTPHeaderField: "X-Plex-Pms-Api-Version"), "1.0")
                 let fields = Set((value("includeFields") ?? "").components(separatedBy: ","))
@@ -166,6 +176,63 @@ final class PlexClientTests: XCTestCase {
         XCTAssertEqual(album.id, "4")
         XCTAssertEqual(album.artist, "Duo")
         XCTAssertNil(page.next)
+    }
+
+    @MainActor
+    func testTableScrollsThroughPlexResultsAndBack() async throws {
+        let name = "CueScrollTest-" + UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: name))
+        defer { defaults.removePersistentDomain(forName: name) }
+        let store = LibraryStore(client: client, defaults: defaults)
+        store.choose(PlexResource(clientIdentifier: "server", name: "Stereo", provides: "server", accessToken: server.token,
+                                  connections: [.init(uri: server.base, local: false, relay: nil)]))
+        try await waitForTable { !store.sections.isEmpty }
+        store.choose(try XCTUnwrap(store.sections.first))
+        try await waitForTable { store.section != nil }
+        let controller = LibraryWindow(store: store)
+        controller.showWindow(nil)
+        defer { controller.close() }
+        let root = try XCTUnwrap(controller.window?.contentView)
+        let table = try XCTUnwrap(root.descendants(of: NSTableView.self).first)
+        let search = try XCTUnwrap(root.descendants(of: NSSearchField.self).first)
+        search.stringValue = "large"
+        controller.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: search))
+        try await waitForTable { table.numberOfRows == 100_003 }
+        for index in [48, 53, 85_000, 100_002, 0] {
+            table.scrollRowToVisible(index)
+            table.selectRowIndexes(IndexSet(integer: index), byExtendingSelection: false)
+            try await waitForTable {
+                (table.view(atColumn: 0, row: index, makeIfNecessary: true) as? NSTextField)?.stringValue == "Large album \(index)"
+            }
+            XCTAssertEqual(table.selectedRow, index)
+        }
+    }
+
+    @MainActor
+    private func waitForTable(_ condition: () -> Bool) async throws {
+        let deadline = Date().addingTimeInterval(5)
+        while !condition() {
+            guard Date() < deadline else { throw MusicError("The library table did not finish loading.") }
+            try await Task.sleep(for: .milliseconds(40))
+        }
+    }
+
+    func testCatalogCacheHandlesShortBatchesAndUnknownTotals() {
+        var cache = CatalogRows()
+        func page(_ start: Int, _ size: Int, _ next: Int?) -> CatalogPage {
+            CatalogPage(rows: (start..<(start + size)).map { .artist(id: String($0), name: "Artist \($0)") },
+                        total: nil, next: next)
+        }
+        for offset in stride(from: 0, to: 600, by: 20) {
+            cache.insert(page(offset, 20, offset + 20), at: offset, near: offset..<(offset + 8), selected: 0)
+            XCTAssertEqual(cache.neededOffset(for: (offset + 15)..<(offset + 20)), offset + 20)
+            XCTAssertLessThan(cache.cached.count, 100)
+        }
+        cache.insert(page(600, 0, nil), at: 600, near: 590..<601, selected: 0)
+        XCTAssertEqual(cache.total, 600)
+        XCTAssertNil(cache.neededOffset(for: 590..<600))
+        XCTAssertEqual(cache.cached[0]?.title, "Artist 0")
+        XCTAssertEqual(cache.neededOffset(for: 1..<20), 1)
     }
 
     func testLargeArtistCatalogLoadsOnlyRequestedSlice() async throws {

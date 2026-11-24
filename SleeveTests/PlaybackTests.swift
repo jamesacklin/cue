@@ -1,3 +1,4 @@
+import AppKit
 import AVFoundation
 import XCTest
 @testable import Sleeve
@@ -69,11 +70,47 @@ final class PlaybackTests: XCTestCase {
         XCTAssertTrue(player.playing)
     }
 
+    func testFooterSeekBarFollowsPlaybackAndSeeking() async throws {
+        let store = LibraryStore()
+        store.player.volume = 0
+        let controller = LibraryWindow(store: store)
+        controller.showWindow(nil)
+        defer { store.player.reset(); controller.close() }
+        let view = try XCTUnwrap(controller.window?.contentView)
+        let slider = try XCTUnwrap(view.descendants(of: NSSlider.self).first { $0.accessibilityLabel() == "Playback position" })
+        let album = Sample.albums[0]
+        store.playAlbum(album)
+        try await wait { slider.doubleValue > 0.2 }
+        let first = slider.doubleValue
+        try await wait { slider.doubleValue > first + 0.4 }
+        XCTAssertTrue(slider.isEnabled)
+        XCTAssertFalse(slider.isVertical)
+        XCTAssertGreaterThan(slider.bounds.width, 80)
+        XCTAssertEqual(slider.maxValue, 24, accuracy: 0.1)
+        store.player.toggle()
+        try await wait { !store.player.playing }
+        slider.doubleValue = 12
+        XCTAssertTrue(slider.sendAction(slider.action, to: slider.target))
+        try await wait { abs(store.player.audio.currentTime().seconds - 12) < 0.15 }
+        try await Task.sleep(for: .milliseconds(650))
+        XCTAssertEqual(slider.doubleValue, 12, accuracy: 0.15)
+        store.player.toggle()
+        try await wait { slider.doubleValue > 12.4 }
+    }
+
     private func wait(until ready: () -> Bool) async throws {
         let deadline = Date().addingTimeInterval(8)
         while !ready() {
             guard Date() < deadline else { throw MusicError("Playback did not reach the expected state.") }
             try await Task.sleep(for: .milliseconds(80))
+        }
+    }
+}
+
+extension NSView {
+    func descendants<T: NSView>(of type: T.Type) -> [T] {
+        subviews.flatMap { view in
+            (view as? T).map { [$0] } ?? view.descendants(of: type)
         }
     }
 }

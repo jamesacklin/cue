@@ -133,3 +133,36 @@ extension Sample {
         return CatalogPage(rows: Array(slice), total: filtered.count, next: slice.endIndex < filtered.count ? slice.endIndex : nil)
     }
 }
+
+/// Absolute table indexes stay stable as metadata moves into and out of memory.
+struct CatalogRows {
+    private(set) var cached: [Int: MusicRow] = [:]
+    private(set) var count = 0
+    private(set) var total: Int?
+
+    mutating func insert(_ page: CatalogPage, at offset: Int, near visible: Range<Int>, selected: Int) {
+        let end = offset + page.rows.count
+        if page.next == nil {
+            total = min(page.total ?? end, end)
+        } else if let reported = page.total {
+            total = reported
+        }
+        // Without a total, one extra row lets scrolling discover the next batch.
+        count = total ?? max(count, end + 1)
+        let margin = CatalogPage.capacity
+        let keep = max(0, visible.lowerBound - margin)..<(visible.upperBound + margin)
+        cached = cached.filter { $0.key < count && (keep.contains($0.key) || $0.key == selected) }
+        for (index, row) in page.rows.enumerated() where offset + index < count {
+            cached[offset + index] = row
+        }
+    }
+
+    func neededOffset(for visible: Range<Int>) -> Int? {
+        guard !visible.isEmpty, visible.lowerBound < count else { return nil }
+        // Start the next request just before the user reaches an unloaded row.
+        let wanted = visible.lowerBound..<min(count, visible.upperBound + 8)
+        guard let missing = wanted.first(where: { cached[$0] == nil }) else { return nil }
+        let start = missing - missing % CatalogPage.capacity
+        return (start...missing).first { cached[$0] == nil }
+    }
+}
