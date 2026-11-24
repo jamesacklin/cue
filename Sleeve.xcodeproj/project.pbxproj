@@ -9,27 +9,16 @@
 /* Begin PBXBuildFile section */
 		097E0FD3C76E88EADC8BC650 /* ConnectionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0B7FF8F122B4A1089B278B38 /* ConnectionView.swift */; };
 		0BCCE0AC904E24E1E0FA6BC8 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 6E50C091577A83BEAEDB8E5D /* Assets.xcassets */; };
-		331F37C9A59A2AC7FF09F55D /* study-1-0.m4a in Resources */ = {isa = PBXBuildFile; fileRef = BD00DBCEB05597222A90CB00 /* study-1-0.m4a */; };
-		349CCCE09B8A4F35AB16FD25 /* study-3-0.m4a in Resources */ = {isa = PBXBuildFile; fileRef = 7420DFD8763EF4EF7D1493F0 /* study-3-0.m4a */; };
-		39226B3077A34FE75CC3B5B0 /* study-2-0.m4a in Resources */ = {isa = PBXBuildFile; fileRef = D89DA1149B0F883BCFDF8AE5 /* study-2-0.m4a */; };
 		46553A22BAFCDF12124F7897 /* Music.swift in Sources */ = {isa = PBXBuildFile; fileRef = 46E0B98BF1897C7DDFDD3FC1 /* Music.swift */; };
-		46876D50F8788715D166473A /* study-2-1.m4a in Resources */ = {isa = PBXBuildFile; fileRef = 652C32635D359869B7D13B9C /* study-2-1.m4a */; };
 		627089CF80AFE734AD3E74F5 /* Player.swift in Sources */ = {isa = PBXBuildFile; fileRef = 37378CC5D2E70D06EACE6577 /* Player.swift */; };
 		6D6F8BB77AE58B6AE7BCB183 /* PlexClientTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 58F5A7280C80595CE9B72B84 /* PlexClientTests.swift */; };
-		7B77B635C6C877CE427732C9 /* study-4-0.m4a in Resources */ = {isa = PBXBuildFile; fileRef = 15D4A5C603278E6881596C7E /* study-4-0.m4a */; };
-		846D196A89644EE13BBCC53E /* study-0-1.m4a in Resources */ = {isa = PBXBuildFile; fileRef = 98DB18A8EFBD79FA1607C84B /* study-0-1.m4a */; };
-		85CBB92370E214D2599EF22C /* study-5-1.m4a in Resources */ = {isa = PBXBuildFile; fileRef = C67DE66AE22C05D33F4795A4 /* study-5-1.m4a */; };
-		8E2EE6C2BEC36D824E6A87DD /* study-5-0.m4a in Resources */ = {isa = PBXBuildFile; fileRef = 7541A02D9171DF2888298F0E /* study-5-0.m4a */; };
+		947CDCA3AE2790EC908DEE38 /* playback-fixture.m4a in Resources */ = {isa = PBXBuildFile; fileRef = DACB4E93D2901791EE812522 /* playback-fixture.m4a */; };
 		A541A82DB0E15C693C800AC4 /* Credentials.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A2B6643171EAFD68A88A93A /* Credentials.swift */; };
 		A8C5430D30142BA7270311BA /* PlexClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0349DBA43A494CB6C6B561B7 /* PlexClient.swift */; };
-		B88E090C89A00FB0BA4A2568 /* study-3-1.m4a in Resources */ = {isa = PBXBuildFile; fileRef = 028248F2D96A67A632439C60 /* study-3-1.m4a */; };
 		BA3FA44975FAC779D3B9FAE8 /* PlaybackTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CBAE8121079BBBF034B317EB /* PlaybackTests.swift */; };
-		BB0C9837EBE9F927D05FD808 /* study-1-1.m4a in Resources */ = {isa = PBXBuildFile; fileRef = AEDF25C17C090E16CD734CE7 /* study-1-1.m4a */; };
 		C14A2448AC24673799601F0D /* SleeveApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = F423F821382A323A127A2320 /* SleeveApp.swift */; };
 		CEE21D6CC8FA25790DDEBBF9 /* LibraryWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = BAFCBD4D24F39D1E794EDC1B /* LibraryWindow.swift */; };
-		D9A72659C57BAC1EBD8546A5 /* study-0-0.m4a in Resources */ = {isa = PBXBuildFile; fileRef = 46787F91457B11F5618B6D0B /* study-0-0.m4a */; };
 		EFED91247C12FFCE16845913 /* LibraryStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3CCAE4925A6A3F35AF99ACFD /* LibraryStore.swift */; };
-		F2C02B3EAB4B98ABF89BBE4F /* study-4-1.m4a in Resources */ = {isa = PBXBuildFile; fileRef = 890145C51832AA34AC6BE637 /* study-4-1.m4a */; };
 		FC5AC6B41EB3BDEA46AC7D1A /* ListeningViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9DC1A1C62823F16D5FD60412 /* ListeningViews.swift */; };
 /* End PBXBuildFile section */
 
@@ -44,31 +33,20 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
-		028248F2D96A67A632439C60 /* study-3-1.m4a */ = {isa = PBXFileReference; path = "study-3-1.m4a"; sourceTree = "<group>"; };
 		0349DBA43A494CB6C6B561B7 /* PlexClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlexClient.swift; sourceTree = "<group>"; };
 		0A2B6643171EAFD68A88A93A /* Credentials.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Credentials.swift; sourceTree = "<group>"; };
 		0B7FF8F122B4A1089B278B38 /* ConnectionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionView.swift; sourceTree = "<group>"; };
-		15D4A5C603278E6881596C7E /* study-4-0.m4a */ = {isa = PBXFileReference; path = "study-4-0.m4a"; sourceTree = "<group>"; };
 		37378CC5D2E70D06EACE6577 /* Player.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Player.swift; sourceTree = "<group>"; };
 		3CCAE4925A6A3F35AF99ACFD /* LibraryStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryStore.swift; sourceTree = "<group>"; };
-		46787F91457B11F5618B6D0B /* study-0-0.m4a */ = {isa = PBXFileReference; path = "study-0-0.m4a"; sourceTree = "<group>"; };
 		46E0B98BF1897C7DDFDD3FC1 /* Music.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Music.swift; sourceTree = "<group>"; };
 		58F5A7280C80595CE9B72B84 /* PlexClientTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlexClientTests.swift; sourceTree = "<group>"; };
-		652C32635D359869B7D13B9C /* study-2-1.m4a */ = {isa = PBXFileReference; path = "study-2-1.m4a"; sourceTree = "<group>"; };
 		6E50C091577A83BEAEDB8E5D /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
-		7420DFD8763EF4EF7D1493F0 /* study-3-0.m4a */ = {isa = PBXFileReference; path = "study-3-0.m4a"; sourceTree = "<group>"; };
-		7541A02D9171DF2888298F0E /* study-5-0.m4a */ = {isa = PBXFileReference; path = "study-5-0.m4a"; sourceTree = "<group>"; };
-		890145C51832AA34AC6BE637 /* study-4-1.m4a */ = {isa = PBXFileReference; path = "study-4-1.m4a"; sourceTree = "<group>"; };
-		98DB18A8EFBD79FA1607C84B /* study-0-1.m4a */ = {isa = PBXFileReference; path = "study-0-1.m4a"; sourceTree = "<group>"; };
 		9DC1A1C62823F16D5FD60412 /* ListeningViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ListeningViews.swift; sourceTree = "<group>"; };
-		AEDF25C17C090E16CD734CE7 /* study-1-1.m4a */ = {isa = PBXFileReference; path = "study-1-1.m4a"; sourceTree = "<group>"; };
 		BAFCBD4D24F39D1E794EDC1B /* LibraryWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryWindow.swift; sourceTree = "<group>"; };
-		BD00DBCEB05597222A90CB00 /* study-1-0.m4a */ = {isa = PBXFileReference; path = "study-1-0.m4a"; sourceTree = "<group>"; };
 		C627EA12DCE1C664149E3074 /* SleeveTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = SleeveTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
-		C67DE66AE22C05D33F4795A4 /* study-5-1.m4a */ = {isa = PBXFileReference; path = "study-5-1.m4a"; sourceTree = "<group>"; };
 		C83108EE7A5ECACCA1AAFFC7 /* Cue.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Cue.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		CBAE8121079BBBF034B317EB /* PlaybackTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackTests.swift; sourceTree = "<group>"; };
-		D89DA1149B0F883BCFDF8AE5 /* study-2-0.m4a */ = {isa = PBXFileReference; path = "study-2-0.m4a"; sourceTree = "<group>"; };
+		DACB4E93D2901791EE812522 /* playback-fixture.m4a */ = {isa = PBXFileReference; path = "playback-fixture.m4a"; sourceTree = "<group>"; };
 		F423F821382A323A127A2320 /* SleeveApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleeveApp.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -78,6 +56,7 @@
 			children = (
 				CBAE8121079BBBF034B317EB /* PlaybackTests.swift */,
 				58F5A7280C80595CE9B72B84 /* PlexClientTests.swift */,
+				3B94C4132C850A267A920C44 /* Resources */,
 			);
 			path = SleeveTests;
 			sourceTree = "<group>";
@@ -89,6 +68,14 @@
 				C627EA12DCE1C664149E3074 /* SleeveTests.xctest */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		3B94C4132C850A267A920C44 /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				DACB4E93D2901791EE812522 /* playback-fixture.m4a */,
+			);
+			path = Resources;
 			sourceTree = "<group>";
 		};
 		4D09A26851638F85C62FABD7 /* Sleeve */ = {
@@ -104,7 +91,6 @@
 				37378CC5D2E70D06EACE6577 /* Player.swift */,
 				0349DBA43A494CB6C6B561B7 /* PlexClient.swift */,
 				F423F821382A323A127A2320 /* SleeveApp.swift */,
-				E45223416284CF0ECADE25D4 /* Resources */,
 			);
 			path = Sleeve;
 			sourceTree = "<group>";
@@ -118,25 +104,6 @@
 			);
 			sourceTree = "<group>";
 		};
-		E45223416284CF0ECADE25D4 /* Resources */ = {
-			isa = PBXGroup;
-			children = (
-				46787F91457B11F5618B6D0B /* study-0-0.m4a */,
-				98DB18A8EFBD79FA1607C84B /* study-0-1.m4a */,
-				BD00DBCEB05597222A90CB00 /* study-1-0.m4a */,
-				AEDF25C17C090E16CD734CE7 /* study-1-1.m4a */,
-				D89DA1149B0F883BCFDF8AE5 /* study-2-0.m4a */,
-				652C32635D359869B7D13B9C /* study-2-1.m4a */,
-				7420DFD8763EF4EF7D1493F0 /* study-3-0.m4a */,
-				028248F2D96A67A632439C60 /* study-3-1.m4a */,
-				15D4A5C603278E6881596C7E /* study-4-0.m4a */,
-				890145C51832AA34AC6BE637 /* study-4-1.m4a */,
-				7541A02D9171DF2888298F0E /* study-5-0.m4a */,
-				C67DE66AE22C05D33F4795A4 /* study-5-1.m4a */,
-			);
-			path = Resources;
-			sourceTree = "<group>";
-		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
@@ -145,6 +112,7 @@
 			buildConfigurationList = 4ACF0B2B1C8FF5DBF85FC5DF /* Build configuration list for PBXNativeTarget "SleeveTests" */;
 			buildPhases = (
 				3AE67C524A708123F23A42C5 /* Sources */,
+				F21474E276EB98F002F8E60B /* Resources */,
 			);
 			buildRules = (
 			);
@@ -219,18 +187,14 @@
 			buildActionMask = 2147483647;
 			files = (
 				0BCCE0AC904E24E1E0FA6BC8 /* Assets.xcassets in Resources */,
-				D9A72659C57BAC1EBD8546A5 /* study-0-0.m4a in Resources */,
-				846D196A89644EE13BBCC53E /* study-0-1.m4a in Resources */,
-				331F37C9A59A2AC7FF09F55D /* study-1-0.m4a in Resources */,
-				BB0C9837EBE9F927D05FD808 /* study-1-1.m4a in Resources */,
-				39226B3077A34FE75CC3B5B0 /* study-2-0.m4a in Resources */,
-				46876D50F8788715D166473A /* study-2-1.m4a in Resources */,
-				349CCCE09B8A4F35AB16FD25 /* study-3-0.m4a in Resources */,
-				B88E090C89A00FB0BA4A2568 /* study-3-1.m4a in Resources */,
-				7B77B635C6C877CE427732C9 /* study-4-0.m4a in Resources */,
-				F2C02B3EAB4B98ABF89BBE4F /* study-4-1.m4a in Resources */,
-				8E2EE6C2BEC36D824E6A87DD /* study-5-0.m4a in Resources */,
-				85CBB92370E214D2599EF22C /* study-5-1.m4a in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		F21474E276EB98F002F8E60B /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				947CDCA3AE2790EC908DEE38 /* playback-fixture.m4a in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -385,7 +349,7 @@
 				CODE_SIGN_IDENTITY = "-";
 				CODE_SIGN_STYLE = Manual;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 3;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_NS_ASSERTIONS = NO;
@@ -446,7 +410,7 @@
 				CODE_SIGN_IDENTITY = "-";
 				CODE_SIGN_STYLE = Manual;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 3;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;

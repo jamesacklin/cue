@@ -1,10 +1,10 @@
 # Cue
 
-A text-only Plex music player for macOS 14 and later. It opens on an album list. The four tabs share one native AppKit table and a persistent transport. Six sample albums are playable before sign-in.
+A text-only Plex music player for macOS 14 and later. It opens on an album list. The four tabs share one native AppKit table and a persistent transport.
 
 ## Listen
 
-Choose **Connect to Plex…**, sign in through your browser, then select a server and music library. On the next launch the player restores that selection. Account credentials are stored in this app’s own Keychain service. Sign out from **Plex Connection…** to return to the sample library.
+Choose **Connect to Plex…**, sign in through your browser, then select a server and music library. On the next launch the player restores that selection. Account credentials are stored in this app’s own Keychain service. Sign out from **Plex Connection…** to disconnect and clear the library view.
 
 - **Albums** opens a release in disc and track order. Use the footer’s Play button to start a selected album, or double-click a track to start there.
 - **Artists** opens an artist’s albums.

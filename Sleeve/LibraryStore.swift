@@ -166,8 +166,8 @@ final class LibraryStore: ObservableObject {
     }
 
     func tracks(for album: Album) async throws -> [Track] {
-        if let server { return try await client.tracks(album: album, on: server) }
-        return Sample.tracks(for: album)
+        guard let server else { return [] }
+        return try await client.tracks(album: album, on: server)
     }
 
     func catalog(_ kind: Catalog, query: String, offset: Int, artistID: String?, order: AlbumOrder) async throws -> CatalogPage {
@@ -179,7 +179,7 @@ final class LibraryStore: ObservableObject {
             firstPage = nil
             return try await client.page(kind, section: section, on: server, query: query, offset: offset, artistID: artistID, order: order)
         }
-        return Sample.page(kind, query: query, offset: offset, artistID: artistID, order: order)
+        return CatalogPage(rows: [], total: 0, next: nil)
     }
 
     func clearQueue() {
@@ -201,7 +201,7 @@ final class LibraryStore: ObservableObject {
             do {
                 let tracks = try await tracks(for: album)
                 guard !Task.isCancelled, revision == requestedRevision else { return }
-                guard let first = tracks.first(where: { $0.localFile != nil || $0.part != nil }) else {
+                guard let first = tracks.first(where: { $0.part != nil }) else {
                     player.error = "There are no playable tracks on this album."
                     return
                 }
@@ -216,7 +216,7 @@ final class LibraryStore: ObservableObject {
         albumPlayback?.cancel()
         albumPlayback = nil
         let entries = tracks.compactMap { track -> QueueEntry? in
-            guard let url = track.localFile ?? (try? server?.stream(for: track)) else { return nil }
+            guard let url = try? server?.stream(for: track) else { return nil }
             return QueueEntry(track: track, album: album, url: url)
         }
         guard let index = entries.firstIndex(where: { $0.track.id == id }) else {

@@ -325,7 +325,9 @@ final class LibraryWindow: NSWindowController, NSTableViewDataSource, NSTableVie
 
     private func updateCount() {
         let count = location.screen.catalogRequest == nil ? rows.count : catalog.total
-        if let count {
+        if location.screen.catalogRequest != nil, store.section == nil {
+            status.stringValue = "No library connected"
+        } else if let count {
             status.stringValue = count == 0 ? (location.query.isEmpty ? "No items" : "No matches")
                 : "\(count) " + (count == 1 ? "item" : "items")
         } else {
@@ -350,7 +352,7 @@ final class LibraryWindow: NSWindowController, NSTableViewDataSource, NSTableVie
             return true
         }
         if case .album = location.screen {
-            return !rows.isEmpty && albumTracks?.contains { $0.localFile != nil || $0.part != nil } == true
+            return !rows.isEmpty && albumTracks?.contains { $0.part != nil } == true
         }
         return false
     }
@@ -450,7 +452,7 @@ final class LibraryWindow: NSWindowController, NSTableViewDataSource, NSTableVie
         guard !loading else { return }
         let index = table.selectedRow
         if case .album(let album) = location.screen, index < 0,
-           let tracks = albumTracks, let first = tracks.first(where: { $0.localFile != nil || $0.part != nil }) {
+           let tracks = albumTracks, let first = tracks.first(where: { $0.part != nil }) {
             store.play(tracks, from: first.id, album: album)
             return
         }

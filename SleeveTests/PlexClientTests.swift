@@ -179,16 +179,37 @@ final class PlexClientTests: XCTestCase {
     }
 
     @MainActor
+    func testAlbumPlaybackQueuesLatestPlexAlbum() async throws {
+        let name = "CuePlaybackTest-" + UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: name))
+        defer { defaults.removePersistentDomain(forName: name) }
+        let store = try await connectedStore(defaults: defaults)
+        store.player.volume = 0
+        defer { store.clearQueue() }
+        store.playAlbum(Album(id: "2", title: "Second", artist: "The Band", year: nil))
+        store.playAlbum(Album(id: "1", title: "First", artist: "The Band", year: nil))
+        try await waitUntil { store.player.current != nil }
+        XCTAssertEqual(store.player.queue.map(\.track.id), ["11"])
+        XCTAssertEqual(store.player.index, 0)
+    }
+
+    @MainActor
+    private func connectedStore(defaults: UserDefaults) async throws -> LibraryStore {
+        let store = LibraryStore(client: client, defaults: defaults)
+        store.choose(PlexResource(clientIdentifier: "server", name: "Stereo", provides: "server", accessToken: server.token,
+                                  connections: [.init(uri: server.base, local: false, relay: nil)]))
+        try await waitUntil { !store.sections.isEmpty }
+        store.choose(try XCTUnwrap(store.sections.first))
+        try await waitUntil { store.section != nil }
+        return store
+    }
+
+    @MainActor
     func testTableScrollsThroughPlexResultsAndBack() async throws {
         let name = "CueScrollTest-" + UUID().uuidString
         let defaults = try XCTUnwrap(UserDefaults(suiteName: name))
         defer { defaults.removePersistentDomain(forName: name) }
-        let store = LibraryStore(client: client, defaults: defaults)
-        store.choose(PlexResource(clientIdentifier: "server", name: "Stereo", provides: "server", accessToken: server.token,
-                                  connections: [.init(uri: server.base, local: false, relay: nil)]))
-        try await waitForTable { !store.sections.isEmpty }
-        store.choose(try XCTUnwrap(store.sections.first))
-        try await waitForTable { store.section != nil }
+        let store = try await connectedStore(defaults: defaults)
         let controller = LibraryWindow(store: store)
         controller.showWindow(nil)
         defer { controller.close() }
@@ -197,11 +218,11 @@ final class PlexClientTests: XCTestCase {
         let search = try XCTUnwrap(root.descendants(of: NSSearchField.self).first)
         search.stringValue = "large"
         controller.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: search))
-        try await waitForTable { table.numberOfRows == 100_003 }
+        try await waitUntil { table.numberOfRows == 100_003 }
         for index in [48, 53, 85_000, 100_002, 0] {
             table.scrollRowToVisible(index)
             table.selectRowIndexes(IndexSet(integer: index), byExtendingSelection: false)
-            try await waitForTable {
+            try await waitUntil {
                 (table.view(atColumn: 0, row: index, makeIfNecessary: true) as? NSTextField)?.stringValue == "Large album \(index)"
             }
             XCTAssertEqual(table.selectedRow, index)
@@ -209,10 +230,10 @@ final class PlexClientTests: XCTestCase {
     }
 
     @MainActor
-    private func waitForTable(_ condition: () -> Bool) async throws {
+    private func waitUntil(_ condition: () -> Bool) async throws {
         let deadline = Date().addingTimeInterval(5)
         while !condition() {
-            guard Date() < deadline else { throw MusicError("The library table did not finish loading.") }
+            guard Date() < deadline else { throw MusicError("The expected library state did not arrive.") }
             try await Task.sleep(for: .milliseconds(40))
         }
     }

@@ -5,39 +5,32 @@ import XCTest
 
 @MainActor
 final class PlaybackTests: XCTestCase {
-    func testEverySampleHasPlayableAudio() async throws {
-        XCTAssertEqual(Sample.albums.count, 6)
-        for album in Sample.albums {
-            for track in Sample.tracks(for: album) {
-                let asset = AVURLAsset(url: try XCTUnwrap(track.localFile))
-                let playable = try await asset.load(.isPlayable)
-                let duration = try await asset.load(.duration)
-                XCTAssertTrue(playable)
-                XCTAssertEqual(duration.seconds, track.duration, accuracy: 0.1)
-            }
+    private func playbackEntries() throws -> [QueueEntry] {
+        let url = try XCTUnwrap(Bundle(for: PlaybackTests.self).url(forResource: "playback-fixture", withExtension: "m4a"))
+        let album = Album(id: "fixture", title: "Test album", artist: "Test artist", year: nil)
+        return (1...2).map { index in
+            let track = Track(id: String(index), title: "Track \(index)", artist: album.artist, disc: 1,
+                              number: index, duration: 24, part: nil)
+            return QueueEntry(track: track, album: album, url: url)
         }
     }
 
-    func testAlbumPlaybackQueuesLatestRequestedAlbumFromFirstTrack() async throws {
+    func testDisconnectedCatalogIsEmpty() async throws {
         let store = LibraryStore()
-        store.player.volume = 0
-        defer { store.player.reset() }
-        store.playAlbum(Sample.albums[0])
-        let album = Sample.albums[1]
-        store.playAlbum(album)
-        try await wait { store.player.playing }
-        XCTAssertEqual(store.player.queue.map(\.track.id), Sample.tracks(for: album).map(\.id))
-        XCTAssertEqual(store.player.index, 0)
+        for kind in Catalog.allCases {
+            let result = try await store.catalog(kind, query: "", offset: 0, artistID: nil, order: .title)
+            XCTAssertTrue(result.rows.isEmpty)
+            XCTAssertEqual(result.total, 0)
+            XCTAssertNil(result.next)
+        }
+        XCTAssertTrue(store.player.queue.isEmpty)
     }
 
     func testPlayingSeekingAndAutomaticAdvance() async throws {
         let player = Player()
         player.volume = 0
         defer { player.reset() }
-        let album = Sample.albums[0]
-        let entries = try Sample.tracks(for: album).map { track in
-            QueueEntry(track: track, album: album, url: try XCTUnwrap(track.localFile))
-        }
+        let entries = try playbackEntries()
         player.replace(entries, startingAt: 0)
         try await wait { player.playing && player.elapsed > 0.2 }
         player.toggle()
@@ -45,7 +38,7 @@ final class PlaybackTests: XCTestCase {
         player.seek(to: 23.3)
         player.toggle()
         try await wait { player.index == 1 && player.playing }
-        XCTAssertEqual(player.current?.track.title, "The Upper Floor")
+        XCTAssertEqual(player.current?.track.title, "Track 2")
         player.previous()
         XCTAssertEqual(player.index, 0)
         player.next()
@@ -59,10 +52,8 @@ final class PlaybackTests: XCTestCase {
         let player = Player()
         player.volume = 0
         defer { player.reset() }
-        let album = Sample.albums[0]
-        let track = try XCTUnwrap(Sample.tracks(for: album).first)
         player.setProgressVisible(false)
-        player.replace([QueueEntry(track: track, album: album, url: try XCTUnwrap(track.localFile))], startingAt: 0)
+        player.replace(try playbackEntries(), startingAt: 0)
         try await wait { player.audio.currentTime().seconds >= 1.2 }
         XCTAssertEqual(player.elapsed, 0)
         player.setProgressVisible(true)
@@ -78,8 +69,7 @@ final class PlaybackTests: XCTestCase {
         defer { store.player.reset(); controller.close() }
         let view = try XCTUnwrap(controller.window?.contentView)
         let slider = try XCTUnwrap(view.descendants(of: NSSlider.self).first { $0.accessibilityLabel() == "Playback position" })
-        let album = Sample.albums[0]
-        store.playAlbum(album)
+        store.player.replace(try playbackEntries(), startingAt: 0)
         try await wait { slider.doubleValue > 0.2 }
         let first = slider.doubleValue
         try await wait { slider.doubleValue > first + 0.4 }
