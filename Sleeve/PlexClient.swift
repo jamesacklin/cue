@@ -285,8 +285,8 @@ struct PlexClient {
     }
 
     func page(_ kind: Catalog, section: LibrarySection, on server: PlexServer, query: String, offset: Int,
-              artistID: String? = nil, order: AlbumOrder = .title) async throws -> CatalogPage {
-        let sort = kind == .albums ? order.plexSort : "titleSort"
+              artistID: String? = nil, order: CatalogOrder? = nil) async throws -> CatalogPage {
+        let sort = (order ?? .standard(for: kind)).plexSort(for: kind)
         var filters = [URLQueryItem(name: "type", value: kind.plexType), URLQueryItem(name: "sort", value: sort)]
         if let artistID { filters.append(URLQueryItem(name: "artist.id", value: artistID)) }
         if !query.isEmpty {

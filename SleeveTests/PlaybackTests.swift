@@ -18,7 +18,7 @@ final class PlaybackTests: XCTestCase {
     func testDisconnectedCatalogIsEmpty() async throws {
         let store = LibraryStore()
         for kind in Catalog.allCases {
-            let result = try await store.catalog(kind, query: "", offset: 0, artistID: nil, order: .title)
+            let result = try await store.catalog(kind, query: "", offset: 0, artistID: nil, order: .standard(for: kind))
             XCTAssertTrue(result.rows.isEmpty)
             XCTAssertEqual(result.total, 0)
             XCTAssertNil(result.next)

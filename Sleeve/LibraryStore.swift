@@ -170,9 +170,9 @@ final class LibraryStore: ObservableObject {
         return try await client.tracks(album: album, on: server)
     }
 
-    func catalog(_ kind: Catalog, query: String, offset: Int, artistID: String?, order: AlbumOrder) async throws -> CatalogPage {
+    func catalog(_ kind: Catalog, query: String, offset: Int, artistID: String?, order: CatalogOrder) async throws -> CatalogPage {
         if let server, let section {
-            if kind == .albums, order == .title, query.isEmpty, offset == 0, artistID == nil, let firstPage {
+            if kind == .albums, order == .standard(for: .albums), query.isEmpty, offset == 0, artistID == nil, let firstPage {
                 self.firstPage = nil
                 return firstPage
             }

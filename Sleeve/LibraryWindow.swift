@@ -25,7 +25,8 @@ private enum Screen {
         case .catalog(.artists): ["Artist"]
         case .artist, .catalog(.albums): ["Album", "Artist", "Year"]
         case .album: ["No.", "Track", "Artist", "Time"]
-        case .catalog(.tracks), .queue: ["Track", "Artist", "Album", "Time"]
+        case .catalog(.tracks): ["No.", "Track", "Artist", "Album", "Time"]
+        case .queue: ["Track", "Artist", "Album", "Time"]
         }
     }
 }
@@ -34,6 +35,27 @@ private struct Location {
     var screen: Screen
     var query = ""
     var firstVisibleRow = 0
+    var order = CatalogOrder(field: .album)
+}
+
+private final class LibraryCell: NSTableCellView {
+    let label = NSTextField(labelWithString: "")
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        label.lineBreakMode = .byTruncatingTail
+        label.alignment = .left
+        label.allowsExpansionToolTips = true
+        addSubview(label)
+        textField = label
+    }
+    required init?(coder: NSCoder) { fatalError() }
+
+    override func layout() {
+        super.layout()
+        let height = label.intrinsicContentSize.height
+        label.frame = NSRect(x: 0, y: (bounds.height - height) / 2, width: bounds.width, height: height)
+    }
 }
 
 private final class MusicTable: NSTableView {
@@ -50,7 +72,7 @@ final class LibraryWindow: NSWindowController, NSTableViewDataSource, NSTableVie
     private let table = MusicTable()
     private let tabs = NSSegmentedControl(labels: Catalog.allCases.map(\.title) + ["Queue"], trackingMode: .selectOne, target: nil, action: nil)
     private let search = NSSearchField()
-    private let heading = NSTextField(labelWithString: "")
+    private let breadcrumbs = NSStackView()
     private let status = NSTextField(labelWithString: "")
     private let backButton = NSButton()
     private lazy var transport = Transport(player: store.player, target: self, action: #selector(toggle))
@@ -58,7 +80,7 @@ final class LibraryWindow: NSWindowController, NSTableViewDataSource, NSTableVie
     private let plex = NSButton()
     private var connection: NSWindow?
     private var location = Location(screen: .catalog(.albums))
-    private var order = AlbumOrder.title
+    private var preferredOrders: [Catalog: CatalogOrder] = [:]
     private var history: [Location] = []
     private var rows: [MusicRow] = []
     private var albumTracks: [Track]?
@@ -129,9 +151,14 @@ final class LibraryWindow: NSWindowController, NSTableViewDataSource, NSTableVie
         configure(plex, "Connect to Plex…", #selector(connect))
         _ = bar([tabs, NSView(), search, plex])
         configure(backButton, "Back", #selector(back))
-        heading.font = .systemFont(ofSize: 11, weight: .medium)
-        heading.lineBreakMode = .byTruncatingTail
-        heading.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        breadcrumbs.spacing = 5
+        breadcrumbs.detachesHiddenViews = false
+        status.font = .systemFont(ofSize: 11)
+        status.textColor = .secondaryLabelColor
+        status.lineBreakMode = .byTruncatingTail
+        status.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        configure(retry, "Retry", #selector(retryLoading))
+        _ = bar([backButton, breadcrumbs, NSView(), status, retry])
         table.style = .plain
         table.usesAlternatingRowBackgroundColors = true
         table.rowHeight = 22
@@ -152,11 +179,6 @@ final class LibraryWindow: NSWindowController, NSTableViewDataSource, NSTableVie
         scroll.documentView = table
         root.addArrangedSubview(scroll)
         scroll.widthAnchor.constraint(equalTo: root.widthAnchor).isActive = true
-        status.font = .systemFont(ofSize: 11)
-        status.lineBreakMode = .byTruncatingTail
-        status.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        configure(retry, "Retry", #selector(retryLoading))
-        _ = bar([backButton, heading, status, retry, NSView()])
         let divider = NSBox()
         divider.boxType = .separator
         root.addArrangedSubview(divider)
@@ -169,26 +191,74 @@ final class LibraryWindow: NSWindowController, NSTableViewDataSource, NSTableVie
     private func selectTab(_ tab: Int) {
         tabs.selectedSegment = tab
         history = []
-        navigate(Location(screen: Catalog(rawValue: tab).map(Screen.catalog) ?? .queue))
+        navigate(newLocation(for: Catalog(rawValue: tab).map(Screen.catalog) ?? .queue))
     }
     private func open(_ screen: Screen) {
         location.firstVisibleRow = visibleRows.lowerBound
         history.append(location)
-        navigate(Location(screen: screen))
+        navigate(newLocation(for: screen))
     }
+
+    private func newLocation(for screen: Screen) -> Location {
+        var result = Location(screen: screen)
+        if let kind = screen.catalogRequest?.kind {
+            result.order = preferredOrders[kind] ?? .standard(for: kind)
+        }
+        return result
+    }
+    private func rebuildBreadcrumbs() {
+        breadcrumbs.arrangedSubviews.forEach { $0.removeFromSuperview() }
+        for (index, parent) in history.enumerated() {
+            let button = NSButton(title: parent.screen.heading, target: self, action: #selector(goToBreadcrumb(_:)))
+            button.tag = index
+            button.isBordered = false
+            button.font = .systemFont(ofSize: 11)
+            button.contentTintColor = .linkColor
+            button.cell?.lineBreakMode = .byTruncatingTail
+            button.toolTip = parent.screen.heading
+            button.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+            breadcrumbs.addArrangedSubview(button)
+            let separator = NSImageView(image: NSImage(systemSymbolName: "chevron.right", accessibilityDescription: nil)!)
+            separator.symbolConfiguration = .init(pointSize: 8, weight: .medium)
+            separator.contentTintColor = .tertiaryLabelColor
+            separator.setAccessibilityElement(false)
+            breadcrumbs.addArrangedSubview(separator)
+        }
+        let current = NSTextField(labelWithString: location.screen.heading)
+        current.font = .systemFont(ofSize: 11, weight: .medium)
+        current.lineBreakMode = .byTruncatingTail
+        current.toolTip = location.screen.heading
+        current.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        breadcrumbs.addArrangedSubview(current)
+        backButton.isHidden = history.isEmpty
+    }
+
+    @objc private func goToBreadcrumb(_ sender: NSButton) {
+        guard history.indices.contains(sender.tag) else { return }
+        let parent = history[sender.tag]
+        history.removeSubrange(sender.tag...)
+        navigate(parent)
+    }
+
     private func navigate(_ newLocation: Location) {
         location = newLocation
+        if let kind = location.screen.catalogRequest?.kind {
+            preferredOrders[kind] = location.order
+        }
         albumTracks = nil
         search.stringValue = location.query
         search.placeholderString = "Search " + (location.screen.columns.contains("Track") ? "tracks" : location.screen.columns[0].lowercased() + "s")
-        heading.isHidden = history.isEmpty
-        heading.stringValue = location.screen.heading
-        heading.toolTip = heading.stringValue
-        backButton.isHidden = history.isEmpty
+        rebuildBreadcrumbs()
         table.tableColumns.forEach(table.removeTableColumn)
         for name in location.screen.columns {
             let col = NSTableColumn(identifier: NSUserInterfaceItemIdentifier(name))
             col.title = name
+            if name == "Artist", location.screen.catalogRequest?.kind == .tracks {
+                col.headerToolTip = "Sort by Plex album artist"
+            }
+            if sortable(name) {
+                col.sortDescriptorPrototype = NSSortDescriptor(key: name, ascending: true)
+            }
             let numeric = ["Year", "No.", "Time"].contains(name)
             col.width = numeric ? 52 : (name == "Artist" ? 175 : 225)
             col.minWidth = numeric ? 48 : 72
@@ -196,6 +266,7 @@ final class LibraryWindow: NSWindowController, NSTableViewDataSource, NSTableVie
             table.addTableColumn(col)
         }
         table.columnAutoresizingStyle = .uniformColumnAutoresizingStyle
+        syncSortHeader()
         table.sizeToFit()
         reload()
     }
@@ -223,9 +294,9 @@ final class LibraryWindow: NSWindowController, NSTableViewDataSource, NSTableVie
                 var positions: [Int] = []
                 switch request.screen {
                 case .catalog(let kind):
-                    page = try await store.catalog(kind, query: request.query, offset: request.firstVisibleRow, artistID: nil, order: order)
+                    page = try await store.catalog(kind, query: request.query, offset: request.firstVisibleRow, artistID: nil, order: request.order)
                 case .artist(let id, _):
-                    page = try await store.catalog(.albums, query: request.query, offset: request.firstVisibleRow, artistID: id, order: order)
+                    page = try await store.catalog(.albums, query: request.query, offset: request.firstVisibleRow, artistID: id, order: request.order)
                 case .album(let album):
                     let tracks: [Track]
                     if let albumTracks { tracks = albumTracks }
@@ -292,7 +363,7 @@ final class LibraryWindow: NSWindowController, NSTableViewDataSource, NSTableVie
         job = Task {
             do {
                 let page = try await store.catalog(request.kind, query: location.query, offset: offset,
-                                                   artistID: request.artistID, order: order)
+                                                   artistID: request.artistID, order: location.order)
                 try Task.checkCancellation()
                 guard revision == store.revision else { return }
                 let oldCount = catalog.count
@@ -363,15 +434,9 @@ final class LibraryWindow: NSWindowController, NSTableViewDataSource, NSTableVie
 
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row index: Int) -> NSView? {
         guard let column = tableColumn?.identifier else { return nil }
-        let field: NSTextField
-        if let reused = tableView.makeView(withIdentifier: column, owner: nil) as? NSTextField {
-            field = reused
-        } else {
-            field = NSTextField(labelWithString: "")
-            field.identifier = column
-            field.lineBreakMode = .byTruncatingTail
-            field.allowsExpansionToolTips = true
-        }
+        let cell = tableView.makeView(withIdentifier: column, owner: nil) as? LibraryCell ?? LibraryCell(frame: .zero)
+        cell.identifier = column
+        let field = cell.label
         let key = column.rawValue
         let value: String
         switch row(at: index) {
@@ -388,14 +453,14 @@ final class LibraryWindow: NSWindowController, NSTableViewDataSource, NSTableVie
             case "Artist": value = track.artist
             case "Album": value = album.title
             case "Time": value = timeLabel(track.duration)
-            case "No.": value = track.disc > 1 ? "\(track.disc).\(track.number)" : String(track.number)
+            case "No.": value = track.number <= 0 ? "" : (track.disc > 1 ? "\(track.disc).\(track.number)" : String(track.number))
             default: value = track.title
             }
         }
         let current = queueIndices.indices.contains(index) && queueIndices[index] == store.player.index
         field.font = .systemFont(ofSize: 12, weight: current ? .semibold : .regular)
         field.stringValue = value
-        return field
+        return cell
     }
     func tableViewSelectionDidChange(_ notification: Notification) { updateActions() }
     func controlTextDidChange(_ obj: Notification) {
@@ -423,11 +488,42 @@ final class LibraryWindow: NSWindowController, NSTableViewDataSource, NSTableVie
             reload()
         }
     }
-    @objc func setOrder(_ sender: NSMenuItem) {
-        guard let selected = AlbumOrder(rawValue: sender.tag) else { return }
-        order = selected
+    private func sortable(_ column: String) -> Bool {
+        switch location.screen.catalogRequest?.kind {
+        case .albums: return column == "Album" || column == "Artist"
+        case .tracks: return column == "Album" || column == "Artist" || column == "Track"
+        default: return false
+        }
+    }
+
+    private func syncSortHeader() {
+        let order = location.order
+        if sortable(order.field.rawValue) {
+            table.sortDescriptors = [NSSortDescriptor(key: order.field.rawValue, ascending: order.ascending)]
+        } else {
+            table.sortDescriptors = []
+        }
+    }
+
+    func tableView(_ tableView: NSTableView, sortDescriptorsDidChange oldDescriptors: [NSSortDescriptor]) {
+        guard let descriptor = tableView.sortDescriptors.first, let key = descriptor.key, sortable(key),
+              let field = CatalogOrder.Field(rawValue: key) else { return }
+        applyOrder(CatalogOrder(field: field, ascending: descriptor.ascending))
+    }
+
+    private func applyOrder(_ order: CatalogOrder) {
+        guard let kind = location.screen.catalogRequest?.kind, location.order != order else { return }
+        location.order = order
+        preferredOrders[kind] = order
         location.firstVisibleRow = 0
+        syncSortHeader()
         reload()
+    }
+
+    @objc func setOrder(_ sender: NSMenuItem) {
+        guard location.screen.catalogRequest?.kind == .albums, let key = sender.representedObject as? String,
+              let field = CatalogOrder.Field(rawValue: key) else { return }
+        applyOrder(CatalogOrder(field: field, ascending: field != .recent))
     }
     @objc func refresh() { albumTracks = nil; reload() }
     @objc func find() { window?.makeFirstResponder(search); search.selectText(nil) }
@@ -485,7 +581,7 @@ final class LibraryWindow: NSWindowController, NSTableViewDataSource, NSTableVie
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
         switch menuItem.action {
         case #selector(setOrder(_:)):
-            menuItem.state = menuItem.tag == order.rawValue ? .on : .off
+            menuItem.state = (menuItem.representedObject as? String) == location.order.field.rawValue ? .on : .off
             switch location.screen {
             case .artist, .catalog(.albums): return true
             default: return false

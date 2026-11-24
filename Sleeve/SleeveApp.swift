@@ -39,9 +39,9 @@ final class SleeveApp: NSObject, NSApplicationDelegate {
         let orderItem = library.addItem(withTitle: "Sort Albums By", action: nil, keyEquivalent: "")
         let orderMenu = NSMenu()
         orderItem.submenu = orderMenu
-        for order in AlbumOrder.allCases {
-            let item = orderMenu.addItem(withTitle: order.label, action: #selector(LibraryWindow.setOrder(_:)), keyEquivalent: "")
-            item.tag = order.rawValue
+        for (title, field) in [("Album Title", CatalogOrder.Field.album), ("Artist Name", .artist), ("Recently Added", .recent)] {
+            let item = orderMenu.addItem(withTitle: title, action: #selector(LibraryWindow.setOrder(_:)), keyEquivalent: "")
+            item.representedObject = field.rawValue
             item.target = window
         }
         let playback = submenu("Playback")

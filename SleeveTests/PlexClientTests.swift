@@ -48,10 +48,49 @@ private final class FixtureProtocol: URLProtocol {
             if value("album.title") == "large" {
                 let start = Int(value("X-Plex-Container-Start")!)!
                 let total = 100_003
-                let rows = (start..<min(start + CatalogPage.capacity, total)).map {
-                    ["ratingKey": String($0), "title": "Large album \($0)"]
+                let reverse = value("sort") == "album.titleSort:desc"
+                let rows = (start..<min(start + CatalogPage.capacity, total)).map { index in
+                    let id = reverse ? total - 1 - index : index
+                    return ["ratingKey": String(id), "title": "Large album \(id)"]
                 }
                 json = ["MediaContainer": ["totalSize": total, "offset": start, "Metadata": rows]]
+                break
+            }
+            if value("type") == "9", value("sort") != "album.titleSort" {
+                let sort = value("sort") ?? ""
+                let rows = [
+                    ["ratingKey": "1", "title": "First", "parentTitle": "Zulu"],
+                    ["ratingKey": "2", "title": "Second", "parentTitle": "Able"]
+                ]
+                let ordered: [[String: String]]
+                switch sort {
+                case "artist.titleSort,album.titleSort", "album.titleSort:desc": ordered = Array(rows.reversed())
+                case "artist.titleSort:desc,album.titleSort": ordered = rows
+                default: XCTFail("Unexpected album order: \(sort)"); ordered = rows
+                }
+                json = ["MediaContainer": ["totalSize": 2, "Metadata": ordered]]
+                break
+            }
+            if value("type") == "8" {
+                json = ["MediaContainer": ["totalSize": 1, "Metadata": [["ratingKey": "44", "title": "The Band"]]]]
+                break
+            }
+            if value("type") == "10", value("track.title") == nil {
+                let sort = value("sort") ?? ""
+                let rows = [
+                    ["ratingKey": "31", "index": 3, "parentIndex": 2, "title": "Echo", "parentTitle": "Amber",
+                     "grandparentTitle": "Zulu"],
+                    ["ratingKey": "32", "index": 1, "title": "Brass", "parentTitle": "Zinc", "grandparentTitle": "Able"]
+                ]
+                let firstIsEcho: Bool
+                switch sort {
+                case "titleSort", "album.titleSort:desc,album.id,track.absoluteIndex,track.index",
+                     "artist.titleSort,album.titleSort,album.id,track.absoluteIndex,track.index": firstIsEcho = false
+                case "album.titleSort,album.id,track.absoluteIndex,track.index",
+                     "artist.titleSort:desc,album.titleSort,album.id,track.absoluteIndex,track.index": firstIsEcho = true
+                default: XCTFail("Unexpected track order: \(sort)"); firstIsEcho = false
+                }
+                json = ["MediaContainer": ["totalSize": 2, "Metadata": firstIsEcho ? rows : Array(rows.reversed())]]
                 break
             }
             if value("type") == "10" {
@@ -223,10 +262,90 @@ final class PlexClientTests: XCTestCase {
             table.scrollRowToVisible(index)
             table.selectRowIndexes(IndexSet(integer: index), byExtendingSelection: false)
             try await waitUntil {
-                (table.view(atColumn: 0, row: index, makeIfNecessary: true) as? NSTextField)?.stringValue == "Large album \(index)"
+                (table.view(atColumn: 0, row: index, makeIfNecessary: true) as? NSTableCellView)?.textField?.stringValue == "Large album \(index)"
             }
             XCTAssertEqual(table.selectedRow, index)
         }
+        table.sortDescriptors = [NSSortDescriptor(key: "Album", ascending: false)]
+        try await waitUntil { table.numberOfRows == 100_003 }
+        table.scrollRowToVisible(85_001)
+        try await waitUntil {
+            let cell = table.view(atColumn: 0, row: 85_001, makeIfNecessary: true) as? NSTableCellView
+            return cell?.textField?.stringValue == "Large album 15001"
+        }
+    }
+
+    @MainActor
+    func testSortHeadersAndBreadcrumbNavigation() async throws {
+        let suite = "CueNavigation-" + UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let store = try await connectedStore(defaults: defaults)
+        let controller = LibraryWindow(store: store)
+        let window = try XCTUnwrap(controller.window)
+        window.setContentSize(window.contentMinSize)
+        controller.showWindow(nil)
+        defer { controller.close() }
+        let root = try XCTUnwrap(window.contentView)
+        let table = try XCTUnwrap(root.descendants(of: NSTableView.self).first)
+        let tabs = try XCTUnwrap(root.descendants(of: NSSegmentedControl.self).first)
+        let search = try XCTUnwrap(root.descendants(of: NSSearchField.self).first)
+        func switchTab(_ tab: Catalog) {
+            tabs.selectedSegment = tab.rawValue
+            _ = tabs.sendAction(tabs.action, to: tabs.target)
+        }
+        func cell(_ column: String, row: Int = 0) -> NSTextField? {
+            let index = table.column(withIdentifier: NSUserInterfaceItemIdentifier(column))
+            guard index >= 0, table.numberOfRows > row else { return nil }
+            return (table.view(atColumn: index, row: row, makeIfNecessary: true) as? NSTableCellView)?.textField
+        }
+        func openFirst() {
+            table.selectRowIndexes(IndexSet(integer: 0), byExtendingSelection: false)
+            let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
+                                         windowNumber: window.windowNumber, context: nil, characters: "\r",
+                                         charactersIgnoringModifiers: "\r", isARepeat: false, keyCode: 36)!
+            table.keyDown(with: event)
+        }
+        try await waitUntil { cell("Album")?.stringValue == "Record 1" }
+        XCTAssertEqual(table.tableColumns.filter { $0.sortDescriptorPrototype != nil }.map(\.title), ["Album", "Artist"])
+        for (key, ascending, title) in [("Artist", true, "Second"), ("Artist", false, "First"),
+                                        ("Album", false, "Second"), ("Album", true, "Record 1")] {
+            table.sortDescriptors = [NSSortDescriptor(key: key, ascending: ascending)]
+            try await waitUntil { cell("Album")?.stringValue == title }
+        }
+        switchTab(.tracks)
+        try await waitUntil { cell("Track")?.stringValue == "Brass" }
+        for (key, ascending, title) in [("Album", true, "Echo"), ("Album", false, "Brass"),
+                                        ("Artist", false, "Echo"), ("Artist", true, "Brass")] {
+            table.sortDescriptors = [NSSortDescriptor(key: key, ascending: ascending)]
+            try await waitUntil { cell("Track")?.stringValue == title }
+        }
+        XCTAssertEqual(cell("No.", row: 1)?.stringValue, "2.3")
+        let label = try XCTUnwrap(cell("Track"))
+        let container = try XCTUnwrap(label.superview)
+        container.layoutSubtreeIfNeeded()
+        XCTAssertEqual(label.frame.midY, container.bounds.midY, accuracy: 0.5)
+        XCTAssertEqual(label.alignment, .left)
+        switchTab(.artists)
+        search.stringValue = "Band"
+        controller.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: search))
+        try await waitUntil { cell("Artist")?.stringValue == "The Band" }
+        openFirst()
+        try await waitUntil { cell("Album")?.stringValue == "Record 1" }
+        openFirst()
+        try await waitUntil { cell("Track")?.stringValue == "Prelude" }
+        let artist = try XCTUnwrap(root.descendants(of: NSButton.self).first { $0.title == "The Band" })
+        artist.performClick(nil)
+        try await waitUntil { cell("Album")?.stringValue == "Record 1" }
+        openFirst()
+        try await waitUntil { cell("Track")?.stringValue == "Prelude" }
+        let ancestor = try XCTUnwrap(root.descendants(of: NSButton.self).first { $0.title == "Artists" })
+        ancestor.performClick(nil)
+        try await waitUntil { cell("Artist")?.stringValue == "The Band" }
+        XCTAssertEqual(search.stringValue, "Band")
+        switchTab(.tracks)
+        XCTAssertEqual(table.sortDescriptors.first?.key, "Artist")
+        XCTAssertEqual(table.sortDescriptors.first?.ascending, true)
     }
 
     @MainActor

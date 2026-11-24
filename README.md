@@ -11,7 +11,7 @@ Choose **Connect to Plex…**, sign in through your browser, then select a serve
 - **Tracks** searches across the selected music library. Playing a result queues its album at that track.
 - **Queue** shows the current album queue and emphasizes the current track. Double-click an entry to jump to it.
 
-Press **⌘F** to search the current view. Album and track searches include artist names, and track searches also include album titles. Press **↓** to select a result, then **Return** to open or play it. **⌘[** goes back. The Library menu offers album sorting and refresh. **Space** toggles playback outside text fields. **⌘←** and **⌘→** control track navigation. The seek bar follows playback. Drag it to change position. The AirPlay picker beside Next selects the audio output. The Playback menu also offers audio output selection and Clear Queue.
+Press **⌘F** to search the current view. Album and track searches include artist names, and track searches also include album titles. Press **↓** to select a result, then **Return** to open or play it. Click an Album or Artist header to sort the full catalog, and click it again to reverse the order. Tracks shows the track number within its album. Plex sorts the Artist column by album artist, including on compilations. Click a breadcrumb above the table to return to that level, or press **⌘[** to go back one level. The Library menu offers album sorting and refresh. **Space** toggles playback outside text fields. **⌘←** and **⌘→** control track navigation. The seek bar follows playback. Drag it to change position. The AirPlay picker beside Next selects the audio output. The Playback menu also offers audio output selection and Clear Queue.
 
 ## Memory
 

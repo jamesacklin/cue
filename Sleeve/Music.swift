@@ -42,10 +42,36 @@ func timeLabel(_ seconds: Double) -> String {
     return String(format: "%d:%02d", value / 60, value % 60)
 }
 
-enum AlbumOrder: Int, CaseIterable {
-    case title, artist, recent
-    var label: String { ["Album Title", "Artist Name", "Recently Added"][rawValue] }
-    var plexSort: String { ["album.titleSort", "artist.titleSort,album.titleSort", "album.addedAt:desc"][rawValue] }
+struct CatalogOrder: Equatable {
+    enum Field: String {
+        case album = "Album", artist = "Artist", track = "Track", recent = "Recently Added"
+    }
+    let field: Field
+    var ascending = true
+
+    static func standard(for catalog: Catalog) -> Self {
+        switch catalog {
+        case .albums: Self(field: .album)
+        case .artists: Self(field: .artist)
+        case .tracks: Self(field: .track)
+        }
+    }
+
+    func plexSort(for catalog: Catalog) -> String {
+        let primary: String
+        switch field {
+        case .album: primary = "album.titleSort"
+        case .artist: primary = "artist.titleSort"
+        case .track: primary = "titleSort"
+        case .recent: primary = "album.addedAt"
+        }
+        var keys = [primary + (ascending ? "" : ":desc")]
+        if field == .artist && catalog != .artists { keys.append("album.titleSort") }
+        if catalog == .tracks && field != .track {
+            keys += ["album.id", "track.absoluteIndex", "track.index"]
+        }
+        return keys.joined(separator: ",")
+    }
 }
 
 enum Catalog: Int, CaseIterable {
