@@ -1,0 +1,44 @@
+name: Sleeve
+options:
+  deploymentTarget:
+    macOS: '14.0'
+settings:
+  base:
+    SWIFT_VERSION: '5.0'
+    MACOSX_DEPLOYMENT_TARGET: '14.0'
+    CODE_SIGN_IDENTITY: '-'
+    CODE_SIGN_STYLE: Manual
+    ENABLE_HARDENED_RUNTIME: YES
+    MARKETING_VERSION: '0.1'
+    CURRENT_PROJECT_VERSION: '1'
+targets:
+  Sleeve:
+    type: application
+    platform: macOS
+    sources: [Sleeve]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: org.sleeveplayer.Sleeve
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.music
+        INFOPLIST_KEY_NSLocalNetworkUsageDescription: Sleeve connects to your selected Plex Media Server to browse and play your music.
+        ENABLE_APP_SANDBOX: YES
+        ENABLE_OUTGOING_NETWORK_CONNECTIONS: YES
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+  SleeveTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources: [SleeveTests]
+    dependencies:
+      - target: Sleeve
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: org.sleeveplayer.SleeveTests
+        GENERATE_INFOPLIST_FILE: YES
+schemes:
+  Sleeve:
+    build:
+      targets:
+        Sleeve: all
+    test:
+      targets: [SleeveTests]
