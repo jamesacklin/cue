@@ -13,7 +13,10 @@ final class Player: ObservableObject {
     @Published var volume: Double = 0.7 {
         didSet { engine?.volume = Float(volume) }
     }
-    private var engine: AVPlayer?
+    let routePlayer = CurrentValueSubject<AVPlayer?, Never>(nil)
+    private var engine: AVPlayer? {
+        didSet { routePlayer.send(engine) }
+    }
     private var clock: Any?
     private var progressVisible = true
     private var end: AnyCancellable?

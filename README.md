@@ -6,12 +6,12 @@ A text-only Plex music player for macOS 14 and later. It opens on an album list.
 
 Choose **Connect to Plex…**, sign in through your browser, then select a server and music library. On the next launch the player restores that selection. Account credentials are stored in this app’s own Keychain service. Sign out from **Plex Connection…** to return to the sample library.
 
-- **Albums** opens a release in disc and track order. Choose **Play Album** or start from a particular track.
+- **Albums** opens a release in disc and track order. Use the footer’s Play button to start a selected album, or double-click a track to start there.
 - **Artists** opens an artist’s albums.
 - **Tracks** searches across the selected music library. Playing a result queues its album at that track.
 - **Queue** shows the current album queue and emphasizes the current track. Double-click an entry to jump to it.
 
-Press **⌘F** to search the current view. Album and track searches include artist names, and track searches also include album titles. Press **↓** to select a result, then **Return** to open or play it. **⌘[** goes back. The Library menu offers album sorting and refresh. **Space** toggles playback outside text fields. **⌘←** and **⌘→** control track navigation. The Playback menu includes AirPlay output selection and Clear Queue.
+Press **⌘F** to search the current view. Album and track searches include artist names, and track searches also include album titles. Press **↓** to select a result, then **Return** to open or play it. **⌘[** goes back. The Library menu offers album sorting and refresh. **Space** toggles playback outside text fields. **⌘←** and **⌘→** control track navigation. The AirPlay picker beside Next selects the audio output. The Playback menu also offers audio output selection and Clear Queue.
 
 ## Memory
 

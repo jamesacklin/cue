@@ -3,7 +3,7 @@ import AVKit
 import Combine
 
 @MainActor
-final class Transport: NSStackView {
+final class Transport: NSStackView, @preconcurrency AVRoutePickerViewDelegate {
     let player: Player
     private let title = NSTextField(labelWithString: "")
     private let time = NSTextField(labelWithString: "")
@@ -12,9 +12,15 @@ final class Transport: NSStackView {
     private var playButton: NSButton!
     private var previousButton: NSButton!
     private var nextButton: NSButton!
+    private let airPlay = AVRoutePickerView()
+    private let playImage = NSImage(systemSymbolName: "play.fill", accessibilityDescription: nil)
+    private let pauseImage = NSImage(systemSymbolName: "pause.fill", accessibilityDescription: nil)
+    var canStartSelection = false {
+        didSet { playButton.isEnabled = player.current != nil || canStartSelection }
+    }
     private var subscriptions = Set<AnyCancellable>()
 
-    init(player: Player) {
+    init(player: Player, target: AnyObject, action: Selector) {
         self.player = player
         super.init(frame: .zero)
         orientation = .vertical
@@ -27,16 +33,32 @@ final class Transport: NSStackView {
         addArrangedSubview(title)
         let controls = NSStackView()
         controls.spacing = 6
-        func button(_ name: String, _ action: Selector) -> NSButton {
-            let button = NSButton(title: name, target: self, action: action)
-            button.controlSize = .small
+        func button(_ name: String, image: NSImage?, target: AnyObject, action: Selector) -> NSButton {
+            let button = NSButton(title: "", target: target, action: action)
+            button.image = image
+            button.imagePosition = .imageOnly
+            button.isBordered = false
+            button.toolTip = name
+            button.setAccessibilityLabel(name)
+            button.widthAnchor.constraint(equalToConstant: 28).isActive = true
+            button.heightAnchor.constraint(equalToConstant: 26).isActive = true
             controls.addArrangedSubview(button)
             return button
         }
-        previousButton = button("Previous", #selector(previous))
-        playButton = button("Play", #selector(toggle))
-        playButton.widthAnchor.constraint(equalToConstant: 55).isActive = true
-        nextButton = button("Next", #selector(next))
+        previousButton = button("Previous track", image: NSImage(systemSymbolName: "backward.end.fill", accessibilityDescription: nil),
+                                target: self, action: #selector(previous))
+        playButton = button("Play", image: playImage, target: target, action: action)
+        nextButton = button("Next track", image: NSImage(systemSymbolName: "forward.end.fill", accessibilityDescription: nil),
+                            target: self, action: #selector(next))
+        airPlay.delegate = self
+        airPlay.isRoutePickerButtonBordered = false
+        airPlay.toolTip = "AirPlay"
+        airPlay.widthAnchor.constraint(equalToConstant: 28).isActive = true
+        airPlay.heightAnchor.constraint(equalToConstant: 26).isActive = true
+        controls.addArrangedSubview(airPlay)
+        controls.setCustomSpacing(12, after: airPlay)
+        player.routePlayer.sink { [weak airPlay] engine in airPlay?.player = engine }
+            .store(in: &subscriptions)
         seek.controlSize = .small
         seek.setAccessibilityLabel("Playback position")
         seek.isContinuous = false
@@ -76,9 +98,12 @@ final class Transport: NSStackView {
     private func render(_ current: QueueEntry?, playing: Bool, error: String?, hasNext: Bool) {
         title.stringValue = error ?? current.map { "\($0.track.artist) — \($0.track.title)" } ?? "Stopped"
         title.toolTip = title.stringValue
-        playButton.title = playing ? "Pause" : "Play"
+        let action = playing ? "Pause" : "Play"
+        playButton.image = playing ? pauseImage : playImage
+        playButton.toolTip = action
+        playButton.setAccessibilityLabel(action)
         previousButton.isEnabled = current != nil
-        playButton.isEnabled = current != nil
+        playButton.isEnabled = current != nil || canStartSelection
         nextButton.isEnabled = hasNext
     }
 
@@ -90,7 +115,9 @@ final class Transport: NSStackView {
         time.stringValue = "\(timeLabel(elapsed)) / \(timeLabel(length.rounded()))"
     }
     @objc private func previous() { player.previous() }
-    @objc private func toggle() { player.toggle() }
+    func routePickerViewWillBeginPresentingRoutes(_ routePickerView: AVRoutePickerView) {
+        routePickerView.player = player.audio
+    }
     @objc private func next() { player.next() }
     @objc private func scrub() { player.seek(to: seek.doubleValue) }
     @objc private func setVolume() { player.volume = volume.doubleValue }

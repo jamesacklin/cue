@@ -48,7 +48,7 @@ final class LibraryWindow: NSWindowController, NSTableViewDataSource, NSTableVie
     private let backButton = NSButton()
     private let earlier = NSButton()
     private let later = NSButton()
-    private let primary = NSButton()
+    private lazy var transport = Transport(player: store.player, target: self, action: #selector(toggle))
     private let retry = NSButton()
     private let plex = NSButton()
     private var connection: NSWindow?
@@ -122,11 +122,9 @@ final class LibraryWindow: NSWindowController, NSTableViewDataSource, NSTableVie
         configure(plex, "Connect to Plex…", #selector(connect))
         _ = bar([tabs, NSView(), search, plex])
         configure(backButton, "Back", #selector(back))
-        heading.font = .systemFont(ofSize: 15, weight: .semibold)
+        heading.font = .systemFont(ofSize: 11, weight: .medium)
         heading.lineBreakMode = .byTruncatingTail
         heading.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        configure(primary, "Open Album", #selector(act))
-        _ = bar([backButton, heading, NSView(), primary])
         table.style = .plain
         table.usesAlternatingRowBackgroundColors = true
         table.rowHeight = 22
@@ -150,12 +148,11 @@ final class LibraryWindow: NSWindowController, NSTableViewDataSource, NSTableVie
         configure(earlier, "Previous Page", #selector(previousPage))
         configure(later, "Next Page", #selector(nextPage))
         configure(retry, "Retry", #selector(refresh))
-        _ = bar([status, retry, NSView(), earlier, later])
+        _ = bar([backButton, heading, status, retry, NSView(), earlier, later])
         let divider = NSBox()
         divider.boxType = .separator
         root.addArrangedSubview(divider)
         divider.widthAnchor.constraint(equalTo: root.widthAnchor).isActive = true
-        let transport = Transport(player: store.player)
         root.addArrangedSubview(transport)
         transport.widthAnchor.constraint(equalTo: root.widthAnchor).isActive = true
         window.initialFirstResponder = table
@@ -175,8 +172,8 @@ final class LibraryWindow: NSWindowController, NSTableViewDataSource, NSTableVie
         albumTracks = nil
         search.stringValue = location.query
         search.placeholderString = "Search " + (location.screen.columns.contains("Track") ? "tracks" : location.screen.columns[0].lowercased() + "s")
-        if case .catalog = location.screen { heading.stringValue = store.section?.title ?? "Sample library" }
-        else { heading.stringValue = location.screen.heading }
+        heading.isHidden = history.isEmpty
+        heading.stringValue = location.screen.heading
         heading.toolTip = heading.stringValue
         backButton.isHidden = history.isEmpty
         table.tableColumns.forEach(table.removeTableColumn)
@@ -277,13 +274,19 @@ final class LibraryWindow: NSWindowController, NSTableViewDataSource, NSTableVie
         later.isHidden = earlier.isHidden
         earlier.isEnabled = !location.previousOffsets.isEmpty
         later.isEnabled = nextOffset != nil
-        switch location.screen {
-        case .catalog(.artists): primary.title = "Open Artist"
-        case .artist, .catalog(.albums): primary.title = "Open Album"
-        case .album: primary.title = table.selectedRow < 0 ? "Play Album" : "Play Track"
-        default: primary.title = "Play Track"
+        transport.canStartSelection = canStartSelection
+    }
+
+    private var canStartSelection: Bool {
+        guard !loading else { return false }
+        if rows.indices.contains(table.selectedRow) {
+            if case .artist = rows[table.selectedRow] { return false }
+            return true
         }
-        primary.isEnabled = !loading && (rows.indices.contains(table.selectedRow) || (primary.title == "Play Album" && !rows.isEmpty))
+        if case .album = location.screen {
+            return !rows.isEmpty && albumTracks?.contains { $0.localFile != nil || $0.part != nil } == true
+        }
+        return false
     }
 
     func numberOfRows(in tableView: NSTableView) -> Int { rows.count }
@@ -361,7 +364,17 @@ final class LibraryWindow: NSWindowController, NSTableViewDataSource, NSTableVie
     @objc func refresh() { albumTracks = nil; reload() }
     @objc func find() { window?.makeFirstResponder(search); search.selectText(nil) }
     @objc func connect() { store.showConnection = true }
-    @objc func toggle() { store.player.toggle() }
+    @objc func toggle() {
+        if store.player.current != nil {
+            store.player.toggle()
+        } else if canStartSelection {
+            if rows.indices.contains(table.selectedRow), case .album(let album) = rows[table.selectedRow] {
+                store.playAlbum(album)
+            } else {
+                act()
+            }
+        }
+    }
     @objc func nextTrack() { store.player.next() }
     @objc func previousTrack() { store.player.previous() }
     @objc func audioOutput() { if let window { showOutputPicker(for: store.player, in: window) } }
@@ -410,7 +423,7 @@ final class LibraryWindow: NSWindowController, NSTableViewDataSource, NSTableVie
             default: return false
             }
         case #selector(back): return !history.isEmpty
-        case #selector(toggle): return store.player.current != nil && window?.firstResponder is NSTextView == false
+        case #selector(toggle): return (store.player.current != nil || canStartSelection) && !(window?.firstResponder is NSTextView)
         case #selector(nextTrack): return store.player.hasNext
         case #selector(previousTrack), #selector(clearQueue): return store.player.current != nil
         default: return true
