@@ -114,6 +114,26 @@ final class TransitMapTests: XCTestCase {
         XCTAssertEqual(view.records, subset)
     }
 
+    func testYearLabelsStayAtLeftInsetAcrossCameraPositions() throws {
+        let view = RailView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
+        let library = LibraryStore()
+        view.populate(Sample.albums, library: library)
+        func checkInset() throws {
+            let years = try XCTUnwrap(view.scene?.rootNode.childNodes { node, _ in
+                guard let value = (node.geometry as? SCNText)?.string as? String else { return false }
+                return Int(value) != nil && !node.isHidden
+            })
+            XCTAssertFalse(years.isEmpty)
+            for node in years { XCTAssertEqual(view.projectPoint(node.worldPosition).x, 12, accuracy: 1) }
+        }
+        view.showOverview()
+        try checkInset()
+        for album in Sample.albums.prefix(3) {
+            view.frameStation(album.id, animate: false)
+            try checkInset()
+        }
+    }
+
     func testMinimapTracksZoomAndOverview() throws {
         let view = RailView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
         let library = LibraryStore()

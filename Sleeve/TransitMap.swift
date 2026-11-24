@@ -663,7 +663,6 @@ final class RailView: SCNView {
             let row = groups[year] ?? []
             let counts = Dictionary(grouping: row, by: \.imprint).mapValues(\.count)
             var slots: [String?: Int] = [:]
-            var ends: [Float: Float] = [:]
             yearLabels.append((year.map(String.init) ?? "Undated", hub))
             for record in row {
                 let slot = slots[record.imprint, default: 0]
@@ -674,18 +673,10 @@ final class RailView: SCNView {
                 let z = -8 * Float(plane) / Float(plane + 4)
                 minimumZ = min(minimumZ, z)
                 let stop = SIMD3<Float>(x, y + 0.30, z)
-                // Run each year branch at the same depth as its stations.
-                // A single fixed-depth rail created long diagonal spurs under perspective.
-                let shoulder = x - 0.42
-                ends[z] = max(ends[z] ?? axisX, shoulder)
-                rails.append([[shoulder,y,z], [x,y,z], stop], width: 0.052, bend: 0.26)
+                spineExtents[z] = (spineExtents[z]?.lowerBound ?? stop.y)...stop.y
                 dots.append(SCNVector3(stop))
                 stations[record.id] = stop + [0,1.08,0]
                 if let artist = record.routeID { routes[artist, default: []].append(stop) }
-            }
-            for (z, end) in ends {
-                rails.append([[axisX,y + 0.30,z], [axisX,y,z], [end,y,z]], width: 0.052, bend: 0.24)
-                spineExtents[z] = (spineExtents[z]?.lowerBound ?? y + 0.30)...(y + 0.30)
             }
         }
         let entries = stations.map { (id: $0.key, position: $0.value) }
@@ -881,15 +872,18 @@ final class RailView: SCNView {
         var shownYears = Set<String>()
         let stride = max(1, Int(ceil(32 * Double(halfHeight * 2) / (3.3 * max(1, Double(bounds.height))))))
         for (i,label) in yearLabels.enumerated() where i.isMultiple(of: stride) {
-            let h = (depth + 1) * atDepth
+            let h = depth * atDepth
             guard abs(label.1.y - aim.y) < h + 1 else { continue }
-            let left = (aim.x - h * aspect * 0.95) / world.simdScale.x
-            let x = max(left, label.1.x)
-            let size = CGFloat(max(0.27, 26 * h / Float(bounds.height)))
+            let units = 2 * h / Float(bounds.height)
+            let x = (aim.x - h * aspect + 12 * units) / world.simdScale.x
+            let size = CGFloat(13 * units)
             let year = label.0
             let text = yearNodes[year] ?? lettering(year, size: size, color: .white, at: .zero, parent: labels)
             yearNodes[year] = text
             text.isHidden = false
+            text.renderingOrder = 10
+            text.geometry?.firstMaterial?.readsFromDepthBuffer = false
+            text.geometry?.firstMaterial?.writesToDepthBuffer = false
             text.simdPosition = [x, label.1.y + 0.08, 0]
             text.simdScale = [Float(size / 10) / world.simdScale.x, Float(size / 10), Float(size / 10)]
             shownYears.insert(year)
