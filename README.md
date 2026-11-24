@@ -19,6 +19,21 @@ The library browser requests 50 rows at a time and asks Plex for the fields need
 
 In the initial text-only release (91be935), three fresh launches of the six-album sample on Apple silicon with macOS 26.5.2 measured 27, 29 and 30 MB of physical footprint. The baseline shelf measured 39, 40 and 40 MB. Measurements used `footprint -p PID` five seconds after launch, with playback stopped and account restoration skipped in the baseline. These figures describe the app process on this machine.
 
+### FLAC playback and scrubbing
+
+**Cue 0.1.6 stayed under 70 MB of app memory in these tests on an 8 GB Apple M1 Mac running macOS 26.5.2.** The highest peak while streaming from Plex was **66.3 MB (63.3 MiB)**. The highest peak across all eight runs was **68.7 MB (65.5 MiB)** while streaming a generated FLAC over local HTTP.
+
+| Stereo FLAC source | Seeks per run | Runs | Peak physical footprint per run (MiB) |
+| --- | ---: | ---: | --- |
+| Plex, 16-bit / 44.1 kHz | 60 in 30 seconds | 3 | 54.33, 54.46, 54.47 |
+| Plex, 24-bit / 96 kHz | 60 in 30 seconds | 3 | 62.50, 63.25, 62.99 |
+| Plex, 24-bit / 96 kHz | 240 in 2 minutes | 1 | 61.92 |
+| Local HTTP, 16-bit / 44.1 kHz | 60 in 30 seconds | 1 | 65.52 |
+
+Each run started a fresh arm64 Release process built from `b793b7a`. A benchmark startup hook selected the track at zero volume. The album list stayed visible. After eight seconds of direct playback, an external driver dragged the seek bar back and forth across the track, verified each seek, then let playback continue for 20 seconds.
+
+The table reports the macOS kernel’s peak physical footprint for the Cue process. The benchmark sampled memory about every 25 ms and checked the high-water mark with `footprint --noCategories -f bytes -p PID`. The totals exclude WindowServer, system audio services and the Plex server. MB uses decimal units and MiB uses binary units.
+
 ### Live library measurements
 
 On an Apple M1 running macOS 26.5.2, a 4,633-album Plex library produced the following results. Each column gives the median of three fresh Release runs. Footprint is the median of repeated macOS `footprint -p PID` samples within each phase. CPU is player-process CPU time divided by wall time, where 100% is one core.
