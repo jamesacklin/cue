@@ -68,7 +68,7 @@ final class LibraryWindow: NSWindowController, NSTableViewDataSource, NSTableVie
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 760, height: 460),
                               styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
         super.init(window: window)
-        window.title = "Minimal Player"
+        window.title = "Cue"
         window.contentMinSize = NSSize(width: 610, height: 300)
         window.center()
         build(window)

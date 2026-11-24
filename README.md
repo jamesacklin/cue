@@ -1,4 +1,4 @@
-# Minimal Player
+# Cue
 
 A text-only Plex music player for macOS 14 and later. It opens on an album list. The four tabs share one native AppKit table and a persistent transport. Six sample albums are playable before sign-in.
 
@@ -38,7 +38,7 @@ Open `Sleeve.xcodeproj`, choose the **Sleeve** scheme and **My Mac**, and press 
 
 ```sh
 xcodebuild -project Sleeve.xcodeproj -scheme Sleeve -configuration Release -derivedDataPath .build build
-open ".build/Build/Products/Release/Minimal Player.app"
+open ".build/Build/Products/Release/Cue.app"
 ```
 
 ## Verify

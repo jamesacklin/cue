@@ -1,4 +1,4 @@
-# Minimal Player
+# Cue
 
 Use the checked-in Xcode project and the Sleeve scheme. Build and test commands are in README.md. Run `xcodegen generate` after adding or removing source files or bundled resources, or after changing project.yml.
 

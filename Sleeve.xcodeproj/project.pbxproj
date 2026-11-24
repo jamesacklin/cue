@@ -58,7 +58,6 @@
 		6E50C091577A83BEAEDB8E5D /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		7420DFD8763EF4EF7D1493F0 /* study-3-0.m4a */ = {isa = PBXFileReference; path = "study-3-0.m4a"; sourceTree = "<group>"; };
 		7541A02D9171DF2888298F0E /* study-5-0.m4a */ = {isa = PBXFileReference; path = "study-5-0.m4a"; sourceTree = "<group>"; };
-		85A58D475474DEE9A6631096 /* Minimal Player.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Minimal Player.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		890145C51832AA34AC6BE637 /* study-4-1.m4a */ = {isa = PBXFileReference; path = "study-4-1.m4a"; sourceTree = "<group>"; };
 		98DB18A8EFBD79FA1607C84B /* study-0-1.m4a */ = {isa = PBXFileReference; path = "study-0-1.m4a"; sourceTree = "<group>"; };
 		9DC1A1C62823F16D5FD60412 /* ListeningViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ListeningViews.swift; sourceTree = "<group>"; };
@@ -67,6 +66,7 @@
 		BD00DBCEB05597222A90CB00 /* study-1-0.m4a */ = {isa = PBXFileReference; path = "study-1-0.m4a"; sourceTree = "<group>"; };
 		C627EA12DCE1C664149E3074 /* SleeveTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = SleeveTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		C67DE66AE22C05D33F4795A4 /* study-5-1.m4a */ = {isa = PBXFileReference; path = "study-5-1.m4a"; sourceTree = "<group>"; };
+		C83108EE7A5ECACCA1AAFFC7 /* Cue.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Cue.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		CBAE8121079BBBF034B317EB /* PlaybackTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackTests.swift; sourceTree = "<group>"; };
 		D89DA1149B0F883BCFDF8AE5 /* study-2-0.m4a */ = {isa = PBXFileReference; path = "study-2-0.m4a"; sourceTree = "<group>"; };
 		F423F821382A323A127A2320 /* SleeveApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleeveApp.swift; sourceTree = "<group>"; };
@@ -85,7 +85,7 @@
 		3799595D10C74A27C3A46EBC /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				85A58D475474DEE9A6631096 /* Minimal Player.app */,
+				C83108EE7A5ECACCA1AAFFC7 /* Cue.app */,
 				C627EA12DCE1C664149E3074 /* SleeveTests.xctest */,
 			);
 			name = Products;
@@ -173,7 +173,7 @@
 			packageProductDependencies = (
 			);
 			productName = Sleeve;
-			productReference = 85A58D475474DEE9A6631096 /* Minimal Player.app */;
+			productReference = C83108EE7A5ECACCA1AAFFC7 /* Cue.app */;
 			productType = "com.apple.product-type.application";
 		};
 /* End PBXNativeTarget section */
@@ -286,7 +286,7 @@
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = org.sleeveplayer.MinimalTests;
 				SDKROOT = macosx;
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Minimal Player.app/Contents/MacOS/Minimal Player";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Cue.app/Contents/MacOS/Cue";
 			};
 			name = Debug;
 		};
@@ -303,7 +303,7 @@
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = org.sleeveplayer.MinimalTests;
 				SDKROOT = macosx;
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Minimal Player.app/Contents/MacOS/Minimal Player";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Cue.app/Contents/MacOS/Cue";
 			};
 			name = Release;
 		};
@@ -316,14 +316,14 @@
 				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.music";
-				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Minimal Player connects to your selected Plex Media Server to browse and play your music.";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Cue connects to your selected Plex Media Server to browse and play your music.";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = org.sleeveplayer.Minimal;
 				PRODUCT_MODULE_NAME = Sleeve;
-				PRODUCT_NAME = "Minimal Player";
+				PRODUCT_NAME = Cue;
 				SDKROOT = macosx;
 			};
 			name = Debug;
@@ -337,14 +337,14 @@
 				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.music";
-				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Minimal Player connects to your selected Plex Media Server to browse and play your music.";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Cue connects to your selected Plex Media Server to browse and play your music.";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = org.sleeveplayer.Minimal;
 				PRODUCT_MODULE_NAME = Sleeve;
-				PRODUCT_NAME = "Minimal Player";
+				PRODUCT_NAME = Cue;
 				SDKROOT = macosx;
 			};
 			name = Release;

@@ -23,10 +23,10 @@ final class SleeveApp: NSObject, NSApplicationDelegate {
             item.submenu = sub
             return sub
         }
-        let app = submenu("Minimal Player")
+        let app = submenu("Cue")
         app.addItem(withTitle: "Plex Connection…", action: #selector(LibraryWindow.connect), keyEquivalent: ",").target = window
         app.addItem(.separator())
-        app.addItem(withTitle: "Quit Minimal Player", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        app.addItem(withTitle: "Quit Cue", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         let edit = submenu("Edit")
         for (name, action, key) in [("Cut", "cut:", "x"), ("Copy", "copy:", "c"), ("Paste", "paste:", "v"), ("Select All", "selectAll:", "a")] {
             edit.addItem(withTitle: name, action: Selector(action), keyEquivalent: key)

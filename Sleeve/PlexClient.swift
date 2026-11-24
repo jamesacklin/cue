@@ -171,7 +171,7 @@ struct PlexClient {
     func request(_ url: URL, token: String? = nil) -> URLRequest {
         var result = URLRequest(url: url, timeoutInterval: 15)
         result.setValue("application/json", forHTTPHeaderField: "Accept")
-        result.setValue("Minimal Player", forHTTPHeaderField: "X-Plex-Product")
+        result.setValue("Cue", forHTTPHeaderField: "X-Plex-Product")
         result.setValue(identifier, forHTTPHeaderField: "X-Plex-Client-Identifier")
         result.setValue(token, forHTTPHeaderField: "X-Plex-Token")
         return result
@@ -207,7 +207,7 @@ struct PlexClient {
             let field = path.map { $0.intValue.map(String.init) ?? $0.stringValue }.joined(separator: ".")
             let location = field.isEmpty ? "JSON document" : field
             connectionLog.error("Response decoding failed at \(location, privacy: .public)")
-            throw MusicError("Minimal Player couldn’t read Plex’s \(location).")
+            throw MusicError("Cue couldn’t read Plex’s \(location).")
         }
     }
 
@@ -222,7 +222,7 @@ struct PlexClient {
         fragment.queryItems = [
             URLQueryItem(name: "clientID", value: identifier),
             URLQueryItem(name: "code", value: pin.code),
-            URLQueryItem(name: "context[device][product]", value: "Minimal Player")
+            URLQueryItem(name: "context[device][product]", value: "Cue")
         ]
         return URL(string: "https://app.plex.tv/auth#?" + (fragment.percentEncodedQuery ?? ""))!
     }
