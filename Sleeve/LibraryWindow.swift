@@ -49,10 +49,16 @@ private enum Screen {
     }
 }
 
+private struct TablePosition {
+    var firstRow = 0
+    var origin: NSPoint?
+    var selectedRow = -1
+}
+
 private struct Location {
     var screen: Screen
     var query = ""
-    var firstVisibleRow = 0
+    var position = TablePosition()
     var order = CatalogOrder(field: .album)
 }
 
@@ -141,6 +147,8 @@ final class LibraryWindow: NSWindowController, NSTableViewDataSource, NSTableVie
     private var location = Location(screen: .catalog(.albums))
     private var preferredOrders: [String: CatalogOrder] = [:]
     private var history: [Location] = []
+    private var activeTab: Int?
+    private var savedTabs: [Int: [Location]] = [:]
     private var rows: [MusicRow] = []
     private var albumTracks: [Track]?
     private var queueIndices: [Int] = []
@@ -167,7 +175,10 @@ final class LibraryWindow: NSWindowController, NSTableViewDataSource, NSTableVie
                 player?.setProgressVisible(window?.occlusionState.contains(.visible) == true)
             }.store(in: &subscriptions)
         store.$revision.dropFirst().receive(on: RunLoop.main).sink { [weak self] _ in
-            self?.selectTab(0)
+            guard let self else { return }
+            self.savedTabs.removeAll()
+            self.activeTab = nil
+            self.selectTab(0)
         }.store(in: &subscriptions)
         store.$showConnection.removeDuplicates().receive(on: RunLoop.main).sink { [weak self] show in
             self?.presentConnection(show)
@@ -306,13 +317,25 @@ final class LibraryWindow: NSWindowController, NSTableViewDataSource, NSTableVie
     }
 
     private func selectTab(_ tab: Int) {
+        guard activeTab != tab else { return }
+        if let activeTab { savedTabs[activeTab] = history + [currentLocation()] }
+        activeTab = tab
         tabs.selectedSegment = tab
-        history = []
-        navigate(newLocation(for: Catalog(rawValue: tab).map(Screen.catalog) ?? .queue))
+        history = savedTabs.removeValue(forKey: tab) ?? []
+        let destination = history.popLast() ?? newLocation(for: Catalog(rawValue: tab).map(Screen.catalog) ?? .queue)
+        navigate(destination)
     }
+    private func currentLocation() -> Location {
+        var result = location
+        if !loading, table.numberOfRows > 0, let clip = table.enclosingScrollView?.contentView {
+            result.position = TablePosition(firstRow: visibleRows.lowerBound, origin: clip.bounds.origin,
+                                            selectedRow: table.selectedRow)
+        }
+        return result
+    }
+
     private func open(_ screen: Screen) {
-        location.firstVisibleRow = visibleRows.lowerBound
-        history.append(location)
+        history.append(currentLocation())
         navigate(newLocation(for: screen))
     }
 
@@ -364,6 +387,7 @@ final class LibraryWindow: NSWindowController, NSTableViewDataSource, NSTableVie
     }
 
     private func navigate(_ newLocation: Location) {
+        loading = true
         location = newLocation
         preferredOrders[location.screen.viewKey] = location.order
         albumTracks = nil
@@ -414,9 +438,6 @@ final class LibraryWindow: NSWindowController, NSTableViewDataSource, NSTableVie
             let name = field.rawValue
             let col = NSTableColumn(identifier: NSUserInterfaceItemIdentifier(name))
             col.title = name
-            if name == "Artist", location.screen.catalogRequest?.kind == .tracks {
-                col.headerToolTip = "Sort by Plex album artist"
-            }
             col.sortDescriptorPrototype = NSSortDescriptor(key: name, ascending: true)
             let numeric = ["Year", "No.", "Time", "Disc"].contains(name)
             col.width = numeric ? 52 : (name == "Artist" ? 175 : 225)
@@ -441,7 +462,8 @@ final class LibraryWindow: NSWindowController, NSTableViewDataSource, NSTableVie
         table.deselectAll(nil)
         table.reloadData()
         updateActions()
-        status.stringValue = "Loading…"
+        status.stringValue = location.screen.catalogRequest?.kind == .tracks && location.order.field == .artist
+            ? "Sorting tracks by artist…" : "Loading…"
         status.toolTip = nil
         let request = location
         let revision = store.revision
@@ -452,9 +474,9 @@ final class LibraryWindow: NSWindowController, NSTableViewDataSource, NSTableVie
                 var positions: [Int] = []
                 switch request.screen {
                 case .catalog(let kind):
-                    page = try await store.catalog(kind, query: request.query, offset: request.firstVisibleRow, artistID: nil, order: request.order)
+                    page = try await store.catalog(kind, query: request.query, offset: request.position.firstRow, artistID: nil, order: request.order)
                 case .artist(let id, _):
-                    page = try await store.catalog(.albums, query: request.query, offset: request.firstVisibleRow, artistID: id, order: request.order)
+                    page = try await store.catalog(.albums, query: request.query, offset: request.position.firstRow, artistID: id, order: request.order)
                 case .album(let album):
                     let tracks: [Track]
                     if let albumTracks { tracks = albumTracks }
@@ -476,7 +498,7 @@ final class LibraryWindow: NSWindowController, NSTableViewDataSource, NSTableVie
                 guard revision == store.revision else { return }
                 queueIndices = positions
                 if request.screen.catalogRequest != nil {
-                    let offset = request.firstVisibleRow
+                    let offset = request.position.firstRow
                     catalog.insert(page, at: offset, near: offset..<(offset + 1), selected: -1)
                 } else {
                     rows = page.rows
@@ -493,12 +515,27 @@ final class LibraryWindow: NSWindowController, NSTableViewDataSource, NSTableVie
                 retry.isHidden = false
             }
             table.reloadData()
-            let anchor = min(request.firstVisibleRow, numberOfRows(in: table) - 1)
-            table.scroll(anchor > 0 ? table.rect(ofRow: anchor).origin : .zero)
+            restorePosition(request.position)
             loading = false
             loadVisibleRows()
             updateActions()
         }
+    }
+
+    private func restorePosition(_ position: TablePosition) {
+        if (0..<table.numberOfRows).contains(position.selectedRow) {
+            table.selectRowIndexes(IndexSet(integer: position.selectedRow), byExtendingSelection: false)
+        }
+        guard let origin = position.origin, let scroll = table.enclosingScrollView else {
+            table.scroll(.zero)
+            return
+        }
+        scroll.layoutSubtreeIfNeeded()
+        let clip = scroll.contentView
+        var bounds = clip.bounds
+        bounds.origin = origin
+        clip.scroll(to: clip.constrainBoundsRect(bounds).origin)
+        scroll.reflectScrolledClipView(clip)
     }
 
     private var visibleRows: Range<Int> {
@@ -612,7 +649,7 @@ final class LibraryWindow: NSWindowController, NSTableViewDataSource, NSTableVie
         let query = search.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
         guard location.query != query else { return }
         location.query = query
-        location.firstVisibleRow = 0
+        location.position = TablePosition()
         reload(debounce: true)
     }
     func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
@@ -652,7 +689,7 @@ final class LibraryWindow: NSWindowController, NSTableViewDataSource, NSTableVie
         guard location.order != order, location.screen.availableColumns.contains(order.field) else { return }
         location.order = order
         preferredOrders[location.screen.viewKey] = order
-        location.firstVisibleRow = 0
+        location.position = TablePosition()
         syncSortHeader()
         reload()
     }
@@ -662,7 +699,12 @@ final class LibraryWindow: NSWindowController, NSTableViewDataSource, NSTableVie
               let field = CatalogOrder.Field(rawValue: key) else { return }
         applyOrder(CatalogOrder(field: field, ascending: field != .recent))
     }
-    @objc func refresh() { albumTracks = nil; reload() }
+    @objc func refresh() {
+        location = currentLocation()
+        albumTracks = nil
+        store.invalidateTrackArtistIndex()
+        reload()
+    }
     @objc func find() { window?.makeFirstResponder(search); search.selectText(nil) }
     @objc func connect() { store.showConnection = true }
     @objc func toggle() {

@@ -20,6 +20,7 @@
 		C14A2448AC24673799601F0D /* SleeveApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = F423F821382A323A127A2320 /* SleeveApp.swift */; };
 		CEE21D6CC8FA25790DDEBBF9 /* LibraryWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = BAFCBD4D24F39D1E794EDC1B /* LibraryWindow.swift */; };
 		EFED91247C12FFCE16845913 /* LibraryStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3CCAE4925A6A3F35AF99ACFD /* LibraryStore.swift */; };
+		F873E7398CDF845525AEFE63 /* TrackArtistIndex.swift in Sources */ = {isa = PBXBuildFile; fileRef = F67176FAF4A2A5B55FAE35B7 /* TrackArtistIndex.swift */; };
 		FC5AC6B41EB3BDEA46AC7D1A /* ListeningViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9DC1A1C62823F16D5FD60412 /* ListeningViews.swift */; };
 /* End PBXBuildFile section */
 
@@ -50,6 +51,7 @@
 		CBAE8121079BBBF034B317EB /* PlaybackTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackTests.swift; sourceTree = "<group>"; };
 		DACB4E93D2901791EE812522 /* playback-fixture.m4a */ = {isa = PBXFileReference; path = "playback-fixture.m4a"; sourceTree = "<group>"; };
 		F423F821382A323A127A2320 /* SleeveApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleeveApp.swift; sourceTree = "<group>"; };
+		F67176FAF4A2A5B55FAE35B7 /* TrackArtistIndex.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrackArtistIndex.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -94,6 +96,7 @@
 				0349DBA43A494CB6C6B561B7 /* PlexClient.swift */,
 				F423F821382A323A127A2320 /* SleeveApp.swift */,
 				27DCBA7F5759A0C3BD1AAF25 /* SystemTransport.swift */,
+				F67176FAF4A2A5B55FAE35B7 /* TrackArtistIndex.swift */,
 			);
 			path = Sleeve;
 			sourceTree = "<group>";
@@ -218,6 +221,7 @@
 				A8C5430D30142BA7270311BA /* PlexClient.swift in Sources */,
 				C14A2448AC24673799601F0D /* SleeveApp.swift in Sources */,
 				2EA429D95BD0F8B52E929745 /* SystemTransport.swift in Sources */,
+				F873E7398CDF845525AEFE63 /* TrackArtistIndex.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -353,7 +357,7 @@
 				CODE_SIGN_IDENTITY = "-";
 				CODE_SIGN_STYLE = Manual;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 7;
+				CURRENT_PROJECT_VERSION = 8;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_NS_ASSERTIONS = NO;
@@ -367,7 +371,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 0.1.5;
+				MARKETING_VERSION = 0.1.6;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -414,7 +418,7 @@
 				CODE_SIGN_IDENTITY = "-";
 				CODE_SIGN_STYLE = Manual;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 7;
+				CURRENT_PROJECT_VERSION = 8;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
@@ -434,7 +438,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 0.1.5;
+				MARKETING_VERSION = 0.1.6;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;

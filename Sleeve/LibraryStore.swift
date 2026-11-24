@@ -5,6 +5,7 @@ import OSLog
 @MainActor
 final class LibraryStore: ObservableObject {
     private var firstPage: CatalogPage?
+    private var trackArtistIndex: TrackArtistIndex?
     @Published private(set) var server: PlexServer?
     @Published private(set) var section: LibrarySection?
     @Published private(set) var signedIn = false
@@ -136,6 +137,7 @@ final class LibraryStore: ObservableObject {
         let records = try await client.page(.albums, section: selected, on: source, query: "", offset: 0)
         try Task.checkCancellation()
         if server?.id != source.id || section?.id != selected.id { player.reset() }
+        invalidateTrackArtistIndex()
         server = source
         section = selected
         firstPage = records
@@ -149,6 +151,7 @@ final class LibraryStore: ObservableObject {
         cancel()
         do { try Credentials.plex.clear() }
         catch { connectionError = error.localizedDescription; return }
+        invalidateTrackArtistIndex()
         token = nil
         signedIn = false
         server = nil
@@ -165,6 +168,8 @@ final class LibraryStore: ObservableObject {
         showConnection = false
     }
 
+    func invalidateTrackArtistIndex() { trackArtistIndex = nil }
+
     func tracks(for album: Album) async throws -> [Track] {
         guard let server else { return [] }
         return try await client.tracks(album: album, on: server)
@@ -177,7 +182,11 @@ final class LibraryStore: ObservableObject {
                 return firstPage
             }
             firstPage = nil
-            return try await client.page(kind, section: section, on: server, query: query, offset: offset, artistID: artistID, order: order)
+            if kind == .tracks, order.field == .artist, trackArtistIndex == nil {
+                trackArtistIndex = try TrackArtistIndex()
+            }
+            return try await client.page(kind, section: section, on: server, query: query, offset: offset,
+                                         artistID: artistID, order: order, trackArtistIndex: artistID == nil ? trackArtistIndex : nil)
         }
         return CatalogPage(rows: [], total: 0, next: nil)
     }

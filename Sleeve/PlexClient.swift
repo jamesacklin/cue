@@ -134,8 +134,9 @@ private struct MusicMetadata: Decodable {
         case .tracks:
             let album = parent ?? Album(id: parentRatingKey?.value ?? "", title: parentTitle ?? "Unknown album",
                                         artist: grandparentTitle ?? "Unknown Artist", year: parentYear ?? year)
+            let credit = originalTitle?.trimmingCharacters(in: .whitespacesAndNewlines)
             let track = Track(id: ratingKey.value, title: title ?? "Untitled track",
-                              artist: originalTitle ?? grandparentTitle ?? album.artist, disc: parentIndex ?? 1,
+                              artist: credit.flatMap { $0.isEmpty ? nil : $0 } ?? album.artist, disc: parentIndex ?? 1,
                               number: index ?? 0, duration: Double(duration ?? 0) / 1000, part: Media?.first?.Part?.first?.key)
             return .track(track, album)
         }
@@ -289,7 +290,17 @@ struct PlexClient {
     }
 
     func page(_ kind: Catalog, section: LibrarySection, on server: PlexServer, query: String, offset: Int,
-              artistID: String? = nil, order: CatalogOrder? = nil) async throws -> CatalogPage {
+              artistID: String? = nil, order: CatalogOrder? = nil,
+              trackArtistIndex: TrackArtistIndex? = nil) async throws -> CatalogPage {
+        if kind == .tracks, let order, order.field == .artist {
+            let index = try trackArtistIndex ?? TrackArtistIndex()
+            return try await index.page(query: query, ascending: order.ascending, offset: offset) { start in
+                var filters = [URLQueryItem(name: "type", value: kind.plexType), URLQueryItem(name: "sort", value: "titleSort")]
+                if let artistID { filters.append(URLQueryItem(name: "artist.id", value: artistID)) }
+                return try await readPage(.tracks, path: "/library/sections/\(section.key)/all", on: server,
+                                          filters: filters, offset: start, size: 500)
+            }
+        }
         let sort = (order ?? .standard(for: kind)).plexSort(for: kind)
         var filters = [URLQueryItem(name: "type", value: kind.plexType), URLQueryItem(name: "sort", value: sort)]
         if let artistID { filters.append(URLQueryItem(name: "artist.id", value: artistID)) }
@@ -313,7 +324,7 @@ struct PlexClient {
     }
 
     private func readPage(_ kind: Catalog, path: String, on server: PlexServer, filters: [URLQueryItem],
-                          offset: Int, parent: Album? = nil) async throws -> CatalogPage {
+                          offset: Int, parent: Album? = nil, size: Int = CatalogPage.capacity) async throws -> CatalogPage {
         // Request only the fields used in text rows and the first playable media part.
         let fields: String
         switch kind {
@@ -321,7 +332,6 @@ struct PlexClient {
         case .albums: fields = "ratingKey,title,parentTitle,year,addedAt"
         case .tracks: fields = "ratingKey,title,parentRatingKey,parentTitle,grandparentTitle,originalTitle,parentIndex,index,duration,parentYear,year,key"
         }
-        let size = CatalogPage.capacity
         let url = try server.url(for: path).appending(queryItems: filters + [
             URLQueryItem(name: "includeFields", value: "size,offset,totalSize," + fields),
             URLQueryItem(name: "includeElements", value: kind == .tracks ? "Metadata,Media,Part" : "Metadata"),

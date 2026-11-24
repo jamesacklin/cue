@@ -63,7 +63,10 @@ struct CatalogOrder: Equatable {
         let primary: String
         switch field {
         case .album: primary = "album.titleSort"
-        case .artist, .albumArtist: primary = "artist.titleSort"
+        case .artist:
+            precondition(catalog != .tracks, "Track artists are sorted by their displayed credit")
+            primary = "artist.titleSort"
+        case .albumArtist: primary = "artist.titleSort"
         case .track: primary = "titleSort"
         case .year: primary = "album.year"
         case .recent: primary = catalog == .artists ? "artist.addedAt" : "album.addedAt"

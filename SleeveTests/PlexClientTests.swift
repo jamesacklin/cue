@@ -131,6 +131,22 @@ private final class FixtureProtocol: URLProtocol {
                 rawBody = Data((request.value(forHTTPHeaderField: "Accept") == "application/xml" ? xml : "{").utf8)
             }
             json = ["MediaContainer": ["totalSize": 2, "offset": offset, "Metadata": [row]]]
+        case "/library/sections/12/all":
+            // Two Plex batches. The earliest performer appears in the last batch.
+            XCTAssertEqual(value("sort"), "titleSort")
+            XCTAssertNil(value("track.title"))
+            let start = Int(value("X-Plex-Container-Start")!)!
+            let size = Int(value("X-Plex-Container-Size")!)!
+            let total = 521
+            let metadata = (start..<min(total, start + size)).map { n -> [String: Any] in
+                var row: [String: Any] = ["ratingKey": String(n), "title": "Cut \(n)", "grandparentTitle": "Various Artists",
+                    "parentTitle": "Compilation", "parentRatingKey": "record", "index": n + 1,
+                    "originalTitle": "Performer \(total - n)"]
+                if n == 0 { row.removeValue(forKey: "originalTitle"); row["grandparentTitle"] = "Middle Band" }
+                if n == 1 { row["originalTitle"] = "  "; row["grandparentTitle"] = "Soloist" }
+                return row
+            }
+            json = ["MediaContainer": ["Metadata": metadata, "offset": start, "totalSize": total]]
         case "/library/sections/8/all":
             let offset = Int(value("X-Plex-Container-Start") ?? "")!
             let size = Int(value("X-Plex-Container-Size") ?? "")!
@@ -140,7 +156,7 @@ private final class FixtureProtocol: URLProtocol {
                 ["ratingKey": String($0), "title": "Artist \($0)"]
             }
             json = ["MediaContainer": ["totalSize": total, "offset": offset, "Metadata": artists]]
-        case "/library/metadata/1/children":
+        case "/library/metadata/1/children", "/library/metadata/15001/children":
             json = ["MediaContainer": ["Metadata": [
                 ["ratingKey": "12", "title": "Coda", "parentIndex": 2, "index": 1],
                 ["ratingKey": "11", "title": "Prelude", "parentIndex": 1, "index": 1,
@@ -248,6 +264,33 @@ final class PlexClientTests: XCTestCase {
         }
     }
 
+    func testTrackArtistSortAcrossPlexPagesAndCompilationSearch() async throws {
+        let api = client
+        let index = try TrackArtistIndex()
+        let library = LibrarySection(key: "12", title: "Various", type: "artist")
+        func page(_ offset: Int, ascending: Bool = true, query: String = "") async throws -> CatalogPage {
+            try await api.page(.tracks, section: library, on: server, query: query, offset: offset,
+                               order: CatalogOrder(field: .artist, ascending: ascending), trackArtistIndex: index)
+        }
+        let first = try await page(0)
+        XCTAssertEqual(first.total, 521)
+        XCTAssertEqual(first.next, 50)
+        XCTAssertEqual(first.rows.prefix(3).map(\.title), ["Cut 0", "Cut 520", "Cut 519"])
+        let second = try await page(50)
+        XCTAssertEqual(second.rows.first?.text(for: .artist, position: 50), "Performer 50")
+        let last = try await page(520)
+        XCTAssertNil(last.next)
+        XCTAssertEqual(last.rows.first?.text(for: .artist, position: 520), "Soloist")
+        let reverse = try await page(0, ascending: false)
+        XCTAssertEqual(reverse.rows.prefix(3).map(\.title), ["Cut 1", "Cut 2", "Cut 3"])
+        let filtered = try await page(0, query: "pErFoRmEr 519")
+        XCTAssertEqual(filtered.rows.map(\.title), ["Cut 2"])
+        XCTAssertEqual(filtered.rows.first?.text(for: .albumArtist, position: 0), "Various Artists")
+        let empty = try await page(0, query: "no such performer")
+        XCTAssertEqual(empty.total, 0)
+        XCTAssertNil(empty.next)
+    }
+
     func testSearchRequestsOneTrackPageWithAlbumContext() async throws {
         let page = try await client.page(.tracks, section: LibrarySection(key: "4", title: "Music", type: "artist"),
                                          on: server, query: "Blue + Gold & Silver", offset: 0)
@@ -314,6 +357,49 @@ final class PlexClientTests: XCTestCase {
             let cell = table.view(atColumn: 0, row: 85_001, makeIfNecessary: true) as? NSTableCellView
             return cell?.textField?.stringValue == "Large album 15001"
         }
+
+        let tabs = try XCTUnwrap(root.descendants(of: NSSegmentedControl.self).first)
+        let window = try XCTUnwrap(controller.window)
+        let clip = try XCTUnwrap(table.enclosingScrollView?.contentView)
+        func tab(_ index: Int) {
+            tabs.selectedSegment = index
+            _ = tabs.sendAction(tabs.action, to: tabs.target)
+        }
+        let target = 85_001
+        table.scroll(NSPoint(x: 0, y: table.rect(ofRow: target - 3).minY + 7))
+        table.selectRowIndexes(IndexSet(integer: target), byExtendingSelection: false)
+        let origin = clip.bounds.origin
+        func assertParentRestored() async throws {
+            try await waitUntil { table.numberOfRows == 100_003 && table.selectedRow == target }
+            XCTAssertEqual(search.stringValue, "large")
+            XCTAssertEqual(table.sortDescriptors.first?.ascending, false)
+            XCTAssertEqual(clip.bounds.origin.y, origin.y, accuracy: 0.5)
+            try await waitUntil {
+                (table.view(atColumn: 0, row: target, makeIfNecessary: true) as? NSTableCellView)?.textField?.stringValue == "Large album 15001"
+            }
+        }
+        tab(3)
+        try await waitUntil { table.tableColumns.first?.title == "Track" }
+        tab(0)
+        try await assertParentRestored()
+        func openSelection() throws {
+            let event = try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
+                windowNumber: window.windowNumber, context: nil, characters: "\r", charactersIgnoringModifiers: "\r",
+                isARepeat: false, keyCode: 36))
+            table.keyDown(with: event)
+        }
+        try openSelection()
+        try await waitUntil { table.tableColumns.first?.title == "No." && table.numberOfRows == 2 }
+        table.selectRowIndexes(IndexSet(integer: 1), byExtendingSelection: false)
+        tab(2)
+        tab(0)
+        try await waitUntil { table.tableColumns.first?.title == "No." && table.selectedRow == 1 }
+        controller.back()
+        try await assertParentRestored()
+        try openSelection()
+        let parent = try XCTUnwrap(root.descendants(of: NSButton.self).first { $0.title == "Albums" })
+        parent.performClick(nil)
+        try await assertParentRestored()
     }
 
     @MainActor
