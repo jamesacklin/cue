@@ -12,20 +12,6 @@ struct Album: Identifiable, Hashable {
     let title: String
     let artist: String
     let year: Int?
-    let added: Int
-    let thumb: String?
-    var sampleArt: String? = nil
-    var artistID: String? = nil
-    var imprint: String? = nil
-    var scenes: [String] = []
-    var genres: [String] = []
-    var styles: [String] = []
-    var artistTags: [String] = []
-
-    var routeID: String? {
-        if let artistID { return "id:" + artistID }
-        return artist == "Unknown Artist" ? nil : "name:" + artist
-    }
 }
 
 struct Track: Identifiable, Hashable {
@@ -68,10 +54,7 @@ enum Sample {
     ]
 
     static let albums: [Album] = records.enumerated().map { index, record in
-        let imprints = ["Switchyard", "Quiet Hours", "Quiet Hours", "Quiet Hours", "Night Index", "Night Index"]
-        let scenes = ["Docklands", "North Loop", "North Loop", "Docklands", "Docklands", "North Loop"]
-        return Album(id: "sample-\(index)", title: record.0, artist: record.1, year: record.2,
-              added: records.count - index, thumb: nil, sampleArt: "cover-\(index)", imprint: imprints[index], scenes: [scenes[index]])
+        Album(id: "sample-\(index)", title: record.0, artist: record.1, year: record.2)
     }
 
     static func tracks(for album: Album) -> [Track] {
@@ -82,5 +65,71 @@ enum Sample {
                          number: offset + 1, duration: 24, part: nil,
                          localFile: Bundle.main.url(forResource: resource, withExtension: "m4a"))
         }
+    }
+}
+
+enum AlbumOrder: Int, CaseIterable {
+    case title, artist, recent
+    var label: String { ["Album Title", "Artist Name", "Recently Added"][rawValue] }
+    var plexSort: String { ["album.titleSort", "artist.titleSort,album.titleSort", "album.addedAt:desc"][rawValue] }
+}
+
+enum Catalog: Int, CaseIterable {
+    case albums, artists, tracks
+    var title: String { ["Albums", "Artists", "Tracks"][rawValue] }
+    var plexType: String { ["9", "8", "10"][rawValue] }
+}
+
+enum MusicRow {
+    case album(Album)
+    case artist(id: String, name: String)
+    case track(Track, Album)
+
+    var title: String {
+        switch self {
+        case .album(let album): album.title
+        case .artist(_, let name): name
+        case .track(let track, _): track.title
+        }
+    }
+
+    func matches(_ query: String) -> Bool {
+        if query.isEmpty || title.localizedCaseInsensitiveContains(query) { return true }
+        switch self {
+        case .album(let album): return album.artist.localizedCaseInsensitiveContains(query)
+        case .artist: return false
+        case .track(let track, let album):
+            return track.artist.localizedCaseInsensitiveContains(query) || album.title.localizedCaseInsensitiveContains(query)
+        }
+    }
+}
+
+struct CatalogPage {
+    static let capacity = 100
+    let rows: [MusicRow]
+    let total: Int?
+    let next: Int?
+}
+
+extension Sample {
+    static func page(_ catalog: Catalog, query: String, offset: Int, artistID: String? = nil, order: AlbumOrder = .title) -> CatalogPage {
+        let records = albums.filter { artistID == nil || $0.artist == artistID }
+        let rows: [MusicRow]
+        switch catalog {
+        case .albums: rows = records.map(MusicRow.album)
+        case .artists: rows = Set(records.map(\.artist)).map { .artist(id: $0, name: $0) }
+        case .tracks: rows = records.flatMap { album in tracks(for: album).map { .track($0, album) } }
+        }
+        var filtered = rows.filter { $0.matches(query) }
+        // The sample albums are stored in most-recently-added order.
+        if catalog != .albums || order != .recent {
+            filtered.sort { left, right in
+                if catalog == .albums, order == .artist, case .album(let a) = left, case .album(let b) = right,
+                   a.artist != b.artist { return a.artist.localizedStandardCompare(b.artist) == .orderedAscending }
+                return left.title.localizedStandardCompare(right.title) == .orderedAscending
+            }
+        }
+        let slice = filtered.dropFirst(offset).prefix(CatalogPage.capacity)
+        return CatalogPage(rows: Array(slice), total: filtered.count, next: slice.endIndex < filtered.count ? slice.endIndex : nil)
     }
 }

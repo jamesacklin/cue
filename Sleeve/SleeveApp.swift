@@ -1,41 +1,64 @@
-import SwiftUI
+import AppKit
 
 @main
-struct SleeveApp: App {
-    @StateObject private var library = LibraryStore()
-
-    var body: some Scene {
-        Window("Sleeve", id: "library") {
-            LibraryWindow()
-                .environmentObject(library)
-                .tint(.sleeveAccent)
-                .frame(minWidth: 750, minHeight: 540)
-                .task {
-                    // The unit-test host uses fixtures and must never open the listener’s Keychain.
-                    if NSClassFromString("XCTestCase") == nil { library.restore() }
-                }
-        }
-        .defaultSize(width: 980, height: 815)
-        .commands {
-            CommandGroup(after: .appSettings) {
-                Button("Plex Connection…") { library.showConnection = true }
-                    .keyboardShortcut(",", modifiers: .command)
-            }
-            CommandMenu("Playback") {
-                PlaybackCommands(player: library.player)
-            }
-        }
+@MainActor
+final class SleeveApp: NSObject, NSApplicationDelegate {
+    static func main() {
+        let app = NSApplication.shared
+        let delegate = SleeveApp()
+        app.setActivationPolicy(.regular)
+        app.delegate = delegate
+        withExtendedLifetime(delegate) { app.run() }
     }
-}
 
-private struct PlaybackCommands: View {
-    @ObservedObject var player: Player
-    var body: some View {
-        Button(player.playing ? "Pause" : "Play") { player.toggle() }
-            .keyboardShortcut(.space, modifiers: []).disabled(player.current == nil)
-        Button("Previous Track") { player.previous() }
-            .keyboardShortcut(.leftArrow, modifiers: .command).disabled(player.current == nil)
-        Button("Next Track") { player.next() }
-            .keyboardShortcut(.rightArrow, modifiers: .command).disabled(!player.hasNext)
+    private var window: LibraryWindow!
+
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        let store = LibraryStore()
+        window = LibraryWindow(store: store)
+        let menu = NSMenu()
+        func submenu(_ title: String) -> NSMenu {
+            let item = menu.addItem(withTitle: title, action: nil, keyEquivalent: "")
+            let sub = NSMenu(title: title)
+            item.submenu = sub
+            return sub
+        }
+        let app = submenu("Minimal Player")
+        app.addItem(withTitle: "Plex Connection…", action: #selector(LibraryWindow.connect), keyEquivalent: ",").target = window
+        app.addItem(.separator())
+        app.addItem(withTitle: "Quit Minimal Player", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        let edit = submenu("Edit")
+        for (name, action, key) in [("Cut", "cut:", "x"), ("Copy", "copy:", "c"), ("Paste", "paste:", "v"), ("Select All", "selectAll:", "a")] {
+            edit.addItem(withTitle: name, action: Selector(action), keyEquivalent: key)
+        }
+        edit.addItem(.separator())
+        edit.addItem(withTitle: "Find", action: #selector(LibraryWindow.find), keyEquivalent: "f").target = window
+        let library = submenu("Library")
+        library.addItem(withTitle: "Back", action: #selector(LibraryWindow.back), keyEquivalent: "[").target = window
+        library.addItem(withTitle: "Refresh", action: #selector(LibraryWindow.refresh), keyEquivalent: "r").target = window
+        let orderItem = library.addItem(withTitle: "Sort Albums By", action: nil, keyEquivalent: "")
+        let orderMenu = NSMenu()
+        orderItem.submenu = orderMenu
+        for order in AlbumOrder.allCases {
+            let item = orderMenu.addItem(withTitle: order.label, action: #selector(LibraryWindow.setOrder(_:)), keyEquivalent: "")
+            item.tag = order.rawValue
+            item.target = window
+        }
+        let playback = submenu("Playback")
+        let toggle = playback.addItem(withTitle: "Play or Pause", action: #selector(LibraryWindow.toggle), keyEquivalent: " ")
+        toggle.target = window
+        toggle.keyEquivalentModifierMask = []
+        playback.addItem(withTitle: "Previous Track", action: #selector(LibraryWindow.previousTrack),
+                         keyEquivalent: String(UnicodeScalar(NSLeftArrowFunctionKey)!)).target = window
+        playback.addItem(withTitle: "Next Track", action: #selector(LibraryWindow.nextTrack),
+                         keyEquivalent: String(UnicodeScalar(NSRightArrowFunctionKey)!)).target = window
+        playback.addItem(withTitle: "Audio Output…", action: #selector(LibraryWindow.audioOutput), keyEquivalent: "").target = window
+        playback.addItem(withTitle: "Clear Queue", action: #selector(LibraryWindow.clearQueue), keyEquivalent: "").target = window
+        NSApp.mainMenu = menu
+        window.showWindow(nil)
+        NSApp.activate(ignoringOtherApps: true)
+        if NSClassFromString("XCTestCase") == nil { store.restore() }
     }
+
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
 }

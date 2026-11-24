@@ -4,10 +4,9 @@ import XCTest
 
 @MainActor
 final class PlaybackTests: XCTestCase {
-    func testEverySampleHasArtworkAndPlayableAudio() async throws {
+    func testEverySampleHasPlayableAudio() async throws {
         XCTAssertEqual(Sample.albums.count, 6)
         for album in Sample.albums {
-            XCTAssertNotNil(NSImage(named: try XCTUnwrap(album.sampleArt)))
             for track in Sample.tracks(for: album) {
                 let asset = AVURLAsset(url: try XCTUnwrap(track.localFile))
                 let playable = try await asset.load(.isPlayable)

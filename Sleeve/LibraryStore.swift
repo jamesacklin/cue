@@ -4,7 +4,7 @@ import OSLog
 
 @MainActor
 final class LibraryStore: ObservableObject {
-    @Published private(set) var albums = Sample.albums
+    private var firstPage: CatalogPage?
     @Published private(set) var server: PlexServer?
     @Published private(set) var section: LibrarySection?
     @Published private(set) var signedIn = false
@@ -18,20 +18,10 @@ final class LibraryStore: ObservableObject {
 
     let client: PlexClient
     let player = Player()
-    private let log = Logger(subsystem: "org.sleeveplayer.Sleeve", category: "PlexConnection")
+    private let log = Logger(subsystem: "org.sleeveplayer.Minimal", category: "PlexConnection")
     private var token: String?
     private var job: Task<Void, Never>?
     private var albumPlayback: Task<Void, Never>?
-    private var mapOrder: Task<ImprintOrder, Never>?
-
-    func transitImprintOrder() async -> ImprintOrder {
-        if let mapOrder { return await mapOrder.value }
-        let snapshot = albums
-        let task = Task.detached(priority: .userInitiated) { ImprintOrder(albums: snapshot) }
-        mapOrder = task
-        return await task.value
-    }
-
     private var didRestore = false
     private let defaults = UserDefaults.standard
 
@@ -141,21 +131,15 @@ final class LibraryStore: ObservableObject {
         perform("Loading \(section.title)…") { try await self.loadAlbums(section, from: proposedServer) }
     }
 
-    func refresh() {
-        guard let server, let section else { return }
-        perform("Refreshing albums…") { try await self.loadAlbums(section, from: server) }
-    }
-
     private func loadAlbums(_ selected: LibrarySection, from source: PlexServer) async throws {
-        let records = try await client.albums(section: selected, on: source)
+        let records = try await client.page(.albums, section: selected, on: source, query: "", offset: 0)
         try Task.checkCancellation()
         if server?.id != source.id || section?.id != selected.id { player.reset() }
         server = source
         section = selected
-        albums = records
+        firstPage = records
         defaults.set(source.id, forKey: "serverID")
         defaults.set(selected.id, forKey: "sectionID")
-        mapOrder = nil
         revision += 1
         showConnection = false
     }
@@ -173,11 +157,9 @@ final class LibraryStore: ObservableObject {
         sections = []
         defaults.removeObject(forKey: "serverID")
         defaults.removeObject(forKey: "sectionID")
-        albums = Sample.albums
+        firstPage = nil
         player.reset()
-        CoverCache.shared.removeAllObjects()
         connectionError = nil
-        mapOrder = nil
         revision += 1
         showConnection = false
     }
@@ -187,7 +169,31 @@ final class LibraryStore: ObservableObject {
         return Sample.tracks(for: album)
     }
 
-    func playAlbum(_ album: Album) {
+    func catalog(_ kind: Catalog, query: String, offset: Int, artistID: String?, order: AlbumOrder) async throws -> CatalogPage {
+        if let server, let section {
+            if kind == .albums, order == .title, query.isEmpty, offset == 0, artistID == nil, let firstPage {
+                self.firstPage = nil
+                return firstPage
+            }
+            firstPage = nil
+            return try await client.page(kind, section: section, on: server, query: query, offset: offset, artistID: artistID, order: order)
+        }
+        return Sample.page(kind, query: query, offset: offset, artistID: artistID, order: order)
+    }
+
+    func clearQueue() {
+        albumPlayback?.cancel()
+        albumPlayback = nil
+        player.reset()
+    }
+
+    func selectQueuedTrack(_ index: Int) {
+        albumPlayback?.cancel()
+        albumPlayback = nil
+        player.select(index)
+    }
+
+    func playAlbum(_ album: Album, startingAt id: String? = nil) {
         albumPlayback?.cancel()
         let requestedRevision = revision
         albumPlayback = Task {
@@ -198,7 +204,7 @@ final class LibraryStore: ObservableObject {
                     player.error = "There are no playable tracks on this album."
                     return
                 }
-                play(tracks, from: first.id, album: album)
+                play(tracks, from: id ?? first.id, album: album)
             } catch {
                 if !Task.isCancelled, revision == requestedRevision { player.error = error.localizedDescription }
             }

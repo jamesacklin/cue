@@ -1,7 +1,7 @@
 import Foundation
 import OSLog
 
-private let connectionLog = Logger(subsystem: "org.sleeveplayer.Sleeve", category: "PlexConnection")
+private let connectionLog = Logger(subsystem: "org.sleeveplayer.Minimal", category: "PlexConnection")
 
 struct PlexResource: Decodable, Identifiable {
     struct Connection: Decodable {
@@ -65,6 +65,7 @@ private struct SectionList: Decodable {
 private struct MetadataPage<Row: Decodable>: Decodable {
     let Metadata: [Row]?
     let totalSize: Int?
+    let offset: Int?
 }
 
 // Plex can serialize database keys as either JSON numbers or strings.
@@ -82,48 +83,14 @@ private struct PlexKey: Decodable {
     }
 }
 
-private protocol PlexRow: Decodable {
-    var ratingKey: PlexKey { get }
-}
-
-private struct AlbumRow: PlexRow {
+private struct MusicMetadata: Decodable {
     let ratingKey: PlexKey
     let title: String?
-    struct Tag: Decodable { let tag: String? }
-    let studio: String?
-    let Collection: [Tag]?
-    let Genre: [Tag]?
-    let Style: [Tag]?
     let parentRatingKey: PlexKey?
     let parentTitle: String?
-    let thumb: String?
-    let year: Int?
-    let addedAt: Int?
-}
-
-private extension AlbumRow {
-    init(xml: XMLElement) throws {
-        func attribute(_ name: String) -> String? { xml.attribute(forName: name)?.stringValue }
-        guard let key = attribute("ratingKey") else { throw MusicError("An album listing is missing its Plex identifier.") }
-        ratingKey = PlexKey(key)
-        title = attribute("title")
-        studio = attribute("studio")
-        Style = xml.elements(forName: "Style").map { Tag(tag: $0.attribute(forName: "tag")?.stringValue) }
-        Genre = xml.elements(forName: "Genre").map { Tag(tag: $0.attribute(forName: "tag")?.stringValue) }
-        Collection = xml.elements(forName: "Collection").map { Tag(tag: $0.attribute(forName: "tag")?.stringValue) }
-        parentRatingKey = attribute("parentRatingKey").map(PlexKey.init)
-        parentTitle = attribute("parentTitle")
-        thumb = attribute("thumb")
-        year = attribute("year").flatMap(Int.init)
-        addedAt = attribute("addedAt").flatMap(Int.init)
-    }
-}
-
-private struct TrackRow: PlexRow {
-    let ratingKey: PlexKey
-    let title: String
     let grandparentTitle: String?
     let originalTitle: String?
+    let year: Int?
     let parentIndex: Int?
     let index: Int?
     let duration: Int?
@@ -132,6 +99,42 @@ private struct TrackRow: PlexRow {
     struct MediaItem: Decodable {
         let Part: [PartItem]?
         struct PartItem: Decodable { let key: String? }
+    }
+
+    init(xml: XMLElement) throws {
+        func field(_ name: String) -> String? { xml.attribute(forName: name)?.stringValue }
+        guard let id = field("ratingKey") else { throw MusicError("Plex returned an item without an identifier.") }
+        ratingKey = PlexKey(id)
+        title = field("title")
+        parentRatingKey = field("parentRatingKey").map(PlexKey.init)
+        parentTitle = field("parentTitle")
+        grandparentTitle = field("grandparentTitle")
+        originalTitle = field("originalTitle")
+        year = field("year").flatMap(Int.init)
+        parentIndex = field("parentIndex").flatMap(Int.init)
+        index = field("index").flatMap(Int.init)
+        duration = field("duration").flatMap(Int.init)
+        Media = xml.elements(forName: "Media").map { media in
+            MediaItem(Part: media.elements(forName: "Part").map {
+                MediaItem.PartItem(key: $0.attribute(forName: "key")?.stringValue)
+            })
+        }
+    }
+
+    func row(_ catalog: Catalog, parent: Album?) -> MusicRow {
+        switch catalog {
+        case .artists: return .artist(id: ratingKey.value, name: title ?? "Unknown Artist")
+        case .albums:
+            return .album(Album(id: ratingKey.value, title: title ?? "Untitled album",
+                                artist: parentTitle ?? "Unknown Artist", year: year))
+        case .tracks:
+            let album = parent ?? Album(id: parentRatingKey?.value ?? "", title: parentTitle ?? "Unknown album",
+                                        artist: grandparentTitle ?? "Unknown Artist", year: nil)
+            let track = Track(id: ratingKey.value, title: title ?? "Untitled track",
+                              artist: originalTitle ?? grandparentTitle ?? album.artist, disc: parentIndex ?? 1,
+                              number: index ?? 0, duration: Double(duration ?? 0) / 1000, part: Media?.first?.Part?.first?.key)
+            return .track(track, album)
+        }
     }
 }
 
@@ -159,13 +162,16 @@ struct PlexClient {
     let session: URLSession
     init(identifier: String, session: URLSession? = nil) {
         self.identifier = identifier
-        self.session = session ?? URLSession(configuration: .ephemeral, delegate: SameOriginRedirects(), delegateQueue: nil)
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.urlCache = nil
+        configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
+        self.session = session ?? URLSession(configuration: configuration, delegate: SameOriginRedirects(), delegateQueue: nil)
     }
 
     func request(_ url: URL, token: String? = nil) -> URLRequest {
         var result = URLRequest(url: url, timeoutInterval: 15)
         result.setValue("application/json", forHTTPHeaderField: "Accept")
-        result.setValue("Sleeve", forHTTPHeaderField: "X-Plex-Product")
+        result.setValue("Minimal Player", forHTTPHeaderField: "X-Plex-Product")
         result.setValue(identifier, forHTTPHeaderField: "X-Plex-Client-Identifier")
         result.setValue(token, forHTTPHeaderField: "X-Plex-Token")
         return result
@@ -201,7 +207,7 @@ struct PlexClient {
             let field = path.map { $0.intValue.map(String.init) ?? $0.stringValue }.joined(separator: ".")
             let location = field.isEmpty ? "JSON document" : field
             connectionLog.error("Response decoding failed at \(location, privacy: .public)")
-            throw MusicError("Sleeve couldn’t read Plex’s \(location).")
+            throw MusicError("Minimal Player couldn’t read Plex’s \(location).")
         }
     }
 
@@ -216,7 +222,7 @@ struct PlexClient {
         fragment.queryItems = [
             URLQueryItem(name: "clientID", value: identifier),
             URLQueryItem(name: "code", value: pin.code),
-            URLQueryItem(name: "context[device][product]", value: "Sleeve")
+            URLQueryItem(name: "context[device][product]", value: "Minimal Player")
         ]
         return URL(string: "https://app.plex.tv/auth#?" + (fragment.percentEncodedQuery ?? ""))!
     }
@@ -258,121 +264,85 @@ struct PlexClient {
         throw MusicError("Couldn’t reach \(resource.name). Check that it’s online and accepts secure connections.")
     }
 
-    private func albumPage(_ request: URLRequest) async throws -> MetadataPage<AlbumRow> {
+    private func metadata(_ request: URLRequest, kind: Catalog) async throws -> MetadataPage<MusicMetadata> {
         let data = try await responseData(request)
-        if let page = try? JSONDecoder().decode(PlexEnvelope<MetadataPage<AlbumRow>>.self, from: data) {
+        if let page = try? JSONDecoder().decode(PlexEnvelope<MetadataPage<MusicMetadata>>.self, from: data) {
             return page.MediaContainer
         }
-        // Some PMS listings contain metadata the server cannot serialize as valid JSON.
+        // Some servers have library entries that cannot be serialized as valid JSON.
         var xmlRequest = request
         xmlRequest.setValue("application/xml", forHTTPHeaderField: "Accept")
-        let xml = try await responseData(xmlRequest)
-        let document = try XMLDocument(data: xml, options: .nodeLoadExternalEntitiesNever)
+        let document = try XMLDocument(data: await responseData(xmlRequest), options: .nodeLoadExternalEntitiesNever)
         guard let root = document.rootElement(), root.name == "MediaContainer" else {
-            throw MusicError("Plex returned an unexpected album list in both JSON and XML.")
+            throw MusicError("Plex returned an unreadable list.")
         }
-        let rows = try root.elements(forName: "Directory").map(AlbumRow.init(xml:))
-        let total = (root.attribute(forName: "totalSize")?.stringValue).flatMap(Int.init)
+        let rows = try root.elements(forName: kind == .tracks ? "Track" : "Directory").map(MusicMetadata.init(xml:))
         guard !rows.isEmpty || root.attribute(forName: "size")?.stringValue == "0" else {
-            throw MusicError("Plex returned an album page without album entries.")
+            throw MusicError("Plex returned an unexpected library entry.")
         }
-        connectionLog.notice("Read album page using XML fallback: \(rows.count, privacy: .public) albums")
-        return MetadataPage(Metadata: rows, totalSize: total)
+        func integer(_ name: String) -> Int? { root.attribute(forName: name)?.stringValue.flatMap(Int.init) }
+        return MetadataPage(Metadata: rows, totalSize: integer("totalSize"), offset: integer("offset"))
     }
 
-    private func items<Row: PlexRow>(_ path: String, on server: PlexServer,
-                       query: [URLQueryItem] = [], pageFor: (URLRequest) async throws -> MetadataPage<Row>) async throws -> [Row] {
-        let batchSize = 250
-        var all: [Row] = []
-        var seen = Set<String>()
-        var start = 0
-        while true {
-            try Task.checkCancellation()
-            let url = try server.url(for: path).appending(queryItems: query + [
-                URLQueryItem(name: "X-Plex-Container-Start", value: String(start)),
-                URLQueryItem(name: "X-Plex-Container-Size", value: String(batchSize))
-            ])
-            let page = try await pageFor(request(url, token: server.token))
-            let batch = page.Metadata ?? []
-            if batch.isEmpty { break }
-            let new = batch.filter { seen.insert($0.ratingKey.value).inserted }
-            guard !new.isEmpty else { break }
-            all.append(contentsOf: new)
-            start += batch.count
-            if let total = page.totalSize {
-                if start >= total { break }
-            } else if batch.count < batchSize { break }
+    func page(_ kind: Catalog, section: LibrarySection, on server: PlexServer, query: String, offset: Int,
+              artistID: String? = nil, order: AlbumOrder = .title) async throws -> CatalogPage {
+        let sort = kind == .albums ? order.plexSort : "titleSort"
+        var filters = [URLQueryItem(name: "type", value: kind.plexType), URLQueryItem(name: "sort", value: sort)]
+        if let artistID { filters.append(URLQueryItem(name: "artist.id", value: artistID)) }
+        if !query.isEmpty {
+            // PMS combines fields with AND unless they are grouped explicitly with OR.
+            let fields: [String]
+            switch kind {
+            case .artists: fields = ["artist.title"]
+            case .albums: fields = ["album.title", "artist.title"]
+            case .tracks: fields = ["track.title", "album.title", "artist.title"]
+            }
+            filters.append(URLQueryItem(name: "push", value: "1"))
+            for (index, field) in fields.enumerated() {
+                if index > 0 { filters.append(URLQueryItem(name: "or", value: "1")) }
+                filters.append(URLQueryItem(name: field, value: query))
+            }
+            filters.append(URLQueryItem(name: "pop", value: "1"))
         }
-        return all
+        return try await readPage(kind, path: "/library/sections/\(section.key)/all", on: server,
+                                  filters: filters, offset: offset)
     }
 
-    func albums(section: LibrarySection, on server: PlexServer) async throws -> [Album] {
-        var albums = try await items("/library/sections/\(section.key)/all", on: server,
-                        query: [URLQueryItem(name: "type", value: "9"),
-                                URLQueryItem(name: "includeOptionalElements", value: "Genre,Style")], pageFor: albumPage).map {
-            let scenes = ($0.Collection ?? []).compactMap { entry -> String? in
-                guard let tag = entry.tag, tag.lowercased().hasPrefix("scene:") else { return nil }
-                let name = tag.dropFirst(6).trimmingCharacters(in: .whitespacesAndNewlines)
-                return name.isEmpty ? nil : name
-            }
-            let imprint = $0.studio?.trimmingCharacters(in: .whitespacesAndNewlines)
-            return Album(id: $0.ratingKey.value, title: $0.title ?? "Untitled album", artist: $0.parentTitle ?? "Unknown Artist",
-                  year: $0.year, added: $0.addedAt ?? 0, thumb: $0.thumb, artistID: $0.parentRatingKey?.value,
-                  imprint: imprint == "" ? nil : imprint, scenes: Set(scenes).sorted(),
-                  genres: ($0.Genre ?? []).compactMap(\.tag), styles: ($0.Style ?? []).compactMap(\.tag))
-        }
-        let missing = albums.indices.filter {
-            albums[$0].imprint != nil && albums[$0].genres.isEmpty && albums[$0].styles.isEmpty
-        }
-        let details = try await tagDetails(for: missing.map { albums[$0].id }, on: server)
-        for i in missing {
-            if let row = details[albums[i].id] {
-                albums[i].genres = (row.Genre ?? []).compactMap(\.tag)
-                albums[i].styles = (row.Style ?? []).compactMap(\.tag)
-            }
-        }
-        let untagged = missing.filter {
-            albums[$0].genres.isEmpty && albums[$0].styles.isEmpty &&
-            albums[$0].artist.caseInsensitiveCompare("Various Artists") != .orderedSame
-        }
-        let artists = try await tagDetails(for: untagged.compactMap { albums[$0].artistID }, on: server)
-        for i in untagged {
-            if let id = albums[i].artistID, let row = artists[id] {
-                albums[i].artistTags = ((row.Genre ?? []) + (row.Style ?? [])).compactMap(\.tag)
-            }
-        }
-        return albums
-    }
-
-    private func tagDetails(for keys: [String], on server: PlexServer) async throws -> [String: AlbumRow] {
-        let keys = Set(keys.filter { !$0.isEmpty && $0.allSatisfy(\.isNumber) }).sorted()
-        var byID: [String: AlbumRow] = [:]
-        for start in stride(from: 0, to: keys.count, by: 100) {
-            try Task.checkCancellation()
-            let ids = keys[start..<min(start + 100, keys.count)]
-            let url = try server.url(for: "/library/metadata/" + ids.joined(separator: ",")).appending(queryItems: [
-                URLQueryItem(name: "includeElements", value: "Genre,Style")
-            ])
-            do {
-                let page = try await albumPage(request(url, token: server.token))
-                for row in page.Metadata ?? [] { byID[row.ratingKey.value] = row }
-            } catch {
-                try Task.checkCancellation()
-                // Genre enrichment is optional. A failed batch must not discard the library.
-                connectionLog.notice("Could not enrich one album metadata batch")
-            }
-        }
-        return byID
+    private func readPage(_ kind: Catalog, path: String, on server: PlexServer, filters: [URLQueryItem],
+                          offset: Int, parent: Album? = nil) async throws -> CatalogPage {
+        let size = CatalogPage.capacity
+        let url = try server.url(for: path).appending(queryItems: filters + [
+            URLQueryItem(name: "X-Plex-Container-Start", value: String(offset)),
+            URLQueryItem(name: "X-Plex-Container-Size", value: String(size))
+        ])
+        var components = URLComponents(url: url, resolvingAgainstBaseURL: false)!
+        // PMS decodes query parameters as form data, where a literal plus means a space.
+        components.percentEncodedQuery = components.percentEncodedQuery?.replacingOccurrences(of: "+", with: "%2B")
+        let result = try await metadata(request(components.url!, token: server.token), kind: kind)
+        try Task.checkCancellation()
+        let batch = result.Metadata ?? []
+        // Older endpoints may ignore pagination and return the complete list.
+        let start = result.offset ?? (batch.count > size ? 0 : offset)
+        guard start <= offset else { throw MusicError("Plex skipped part of this listing. Refresh and try again.") }
+        let slice = batch.dropFirst(offset - start).prefix(size)
+        let end = offset + slice.count
+        let total = result.totalSize ?? (batch.count > size ? start + batch.count : nil)
+        let more = !slice.isEmpty && (total.map { end < $0 } ?? (slice.count == size))
+        return CatalogPage(rows: slice.map { $0.row(kind, parent: parent) }, total: total, next: more ? end : nil)
     }
 
     func tracks(album: Album, on server: PlexServer) async throws -> [Track] {
-        try await items("/library/metadata/\(album.id)/children", on: server) { request in
-            let envelope: PlexEnvelope<MetadataPage<TrackRow>> = try await decode(request)
-            return envelope.MediaContainer
-        }.map {
-            Track(id: $0.ratingKey.value, title: $0.title, artist: $0.originalTitle ?? $0.grandparentTitle ?? album.artist,
-                  disc: $0.parentIndex ?? 1, number: $0.index ?? 0, duration: Double($0.duration ?? 0) / 1000,
-                  part: $0.Media?.first?.Part?.first?.key)
-        }.sorted { ($0.disc, $0.number) < ($1.disc, $1.number) }
+        var tracks: [Track] = []
+        var seen = Set<String>()
+        var offset = 0
+        while true {
+            let page = try await readPage(.tracks, path: "/library/metadata/\(album.id)/children", on: server,
+                                          filters: [], offset: offset, parent: album)
+            let count = tracks.count
+            for case .track(let track, _) in page.rows where seen.insert(track.id).inserted { tracks.append(track) }
+            guard let next = page.next, tracks.count > count else { break }
+            offset = next
+        }
+        return tracks.sorted { ($0.disc, $0.number) < ($1.disc, $1.number) }
     }
 }

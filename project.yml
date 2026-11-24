@@ -16,12 +16,15 @@ targets:
     type: application
     platform: macOS
     sources: [Sleeve]
+    productName: Minimal Player
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: org.sleeveplayer.Sleeve
+        PRODUCT_BUNDLE_IDENTIFIER: org.sleeveplayer.Minimal
+        PRODUCT_MODULE_NAME: Sleeve
+        PRODUCT_NAME: Minimal Player
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.music
-        INFOPLIST_KEY_NSLocalNetworkUsageDescription: Sleeve connects to your selected Plex Media Server to browse and play your music.
+        INFOPLIST_KEY_NSLocalNetworkUsageDescription: Minimal Player connects to your selected Plex Media Server to browse and play your music.
         ENABLE_APP_SANDBOX: YES
         ENABLE_OUTGOING_NETWORK_CONNECTIONS: YES
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
@@ -33,7 +36,7 @@ targets:
       - target: Sleeve
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: org.sleeveplayer.SleeveTests
+        PRODUCT_BUNDLE_IDENTIFIER: org.sleeveplayer.MinimalTests
         GENERATE_INFOPLIST_FILE: YES
 schemes:
   Sleeve:

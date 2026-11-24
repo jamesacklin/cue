@@ -1,80 +1,89 @@
-import SwiftUI
+import AppKit
+import Combine
 
-struct ConnectionView: View {
-    @EnvironmentObject private var library: LibraryStore
+@MainActor
+final class ConnectionView: NSViewController {
+    private let store: LibraryStore
+    private let stack = NSStackView()
+    private var observation: AnyCancellable?
 
-    var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            HStack {
-                PageHeading(title: "Plex Connection", detail: library.server?.name ?? (library.signedIn ? "Signed in to Plex" : "Music libraries"))
-                Spacer()
-                Button("Done") { library.showConnection = false }.keyboardShortcut(.cancelAction)
-            }
-            Divider()
-            if let message = library.connectionError {
-                Label(message, systemImage: "exclamationmark.triangle").foregroundStyle(.primary).fixedSize(horizontal: false, vertical: true)
-            }
-            if let activity = library.activity {
-                HStack {
-                    ProgressView().controlSize(.small)
-                    Text(activity)
-                    Spacer()
-                    Button("Cancel") { library.cancel() }
-                }
-            } else if !library.signedIn {
-                Text("Sign in through your browser to choose a Plex server and music library.").foregroundStyle(.secondary)
-                Button("Sign In with Plex") { library.signIn() }.buttonStyle(.borderedProminent)
-            } else {
-                if library.resources.isEmpty {
-                    Text("No servers available. Make sure your Plex Media Server is online and shared with this account.")
-                        .foregroundStyle(.secondary)
-                } else {
-                    Text("Choose a server").font(.headline)
-                    ScrollView {
-                        VStack(alignment: .leading, spacing: 5) {
-                            ForEach(library.resources) { resource in
-                                choice(resource.name, icon: "externaldrive", selected: library.proposedServer?.id == resource.id) {
-                                    library.choose(resource)
-                                }
-                            }
-                        }
-                    }.frame(maxHeight: min(135, CGFloat(library.resources.count * 33)))
-                    if let server = library.proposedServer {
-                        Text("Choose a music library").font(.headline)
-                        if library.sections.isEmpty {
-                            Text("There are no music libraries on \(server.name) available to this account.").foregroundStyle(.secondary)
-                        } else {
-                            ScrollView {
-                                VStack(alignment: .leading, spacing: 5) {
-                                    ForEach(library.sections) { section in
-                                        choice(section.title, icon: "music.note.house", selected: library.server?.id == server.id && library.section?.id == section.id) {
-                                            library.choose(section)
-                                        }
-                                    }
-                                }
-                            }.frame(maxHeight: min(135, CGFloat(library.sections.count * 33)))
-                        }
-                    }
-                }
-                Divider()
-                HStack {
-                    Button("Refresh Servers") { library.discover() }
-                    Spacer()
-                    Button("Sign Out") { library.signOut() }
-                }
-            }
-        }.padding(26).frame(width: 440).fixedSize(horizontal: false, vertical: true)
+    init(store: LibraryStore) {
+        self.store = store
+        super.init(nibName: nil, bundle: nil)
+    }
+    required init?(coder: NSCoder) { fatalError() }
+
+    override func loadView() {
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.spacing = 12
+        stack.edgeInsets = .init(top: 18, left: 20, bottom: 18, right: 20)
+        view = stack
+        stack.widthAnchor.constraint(equalToConstant: 400).isActive = true
+        render()
+        observation = store.objectWillChange.debounce(for: .milliseconds(10), scheduler: RunLoop.main)
+            .sink { [weak self] in self?.render() }
     }
 
-    private func choice(_ label: String, icon: String, selected: Bool, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            HStack {
-                Label(label, systemImage: icon).lineLimit(1)
-                Spacer()
-                Image(systemName: selected ? "checkmark" : "chevron.right").font(.caption)
-            }.padding(.horizontal, 9).frame(height: 28)
-                .background(.quaternary.opacity(0.55), in: RoundedRectangle(cornerRadius: 5))
-                .contentShape(Rectangle())
-        }.buttonStyle(.plain)
+    private func render() {
+        stack.arrangedSubviews.forEach { $0.removeFromSuperview() }
+        func label(_ string: String) {
+            let field = NSTextField(wrappingLabelWithString: string)
+            field.preferredMaxLayoutWidth = 355
+            stack.addArrangedSubview(field)
+        }
+        func button(_ title: String, _ action: Selector) {
+            stack.addArrangedSubview(NSButton(title: title, target: self, action: action))
+        }
+        if let message = store.connectionError { label(message) }
+        if let activity = store.activity {
+            label(activity)
+            button("Cancel", #selector(cancelJob))
+        } else if store.signedIn {
+            label("Plex server")
+            let servers = popup(store.resources.map(\.name), prompt: "Choose server…", action: #selector(server(_:)))
+            if let selected = store.resources.firstIndex(where: { $0.id == store.proposedServer?.id }) {
+                servers.selectItem(at: selected + 1)
+            }
+            if store.resources.isEmpty { label("No servers found.") }
+            if store.proposedServer != nil {
+                label("Music library")
+                _ = popup(store.sections.map(\.title), prompt: "Choose library…", action: #selector(section(_:)))
+                if store.sections.isEmpty { label("This server has no music libraries.") }
+            }
+            button("Refresh Servers", #selector(discover))
+            button("Sign Out", #selector(signOut))
+        } else {
+            label("Sign in through your browser to choose a Plex music library.")
+            button("Sign In with Plex", #selector(signIn))
+        }
+        button("Done", #selector(done))
+        preferredContentSize = stack.fittingSize
+        view.window?.setContentSize(preferredContentSize)
     }
+
+    private func popup(_ titles: [String], prompt: String, action: Selector) -> NSPopUpButton {
+        let popup = NSPopUpButton()
+        // Add items individually so identically named libraries remain selectable.
+        for title in [prompt] + titles { popup.menu?.addItem(NSMenuItem(title: title, action: nil, keyEquivalent: "")) }
+        popup.selectItem(at: 0)
+        popup.target = self
+        popup.action = action
+        popup.isEnabled = !titles.isEmpty
+        stack.addArrangedSubview(popup)
+        return popup
+    }
+    @objc private func server(_ sender: NSPopUpButton) {
+        let index = sender.indexOfSelectedItem - 1
+        if store.resources.indices.contains(index) { store.choose(store.resources[index]) }
+    }
+    @objc private func section(_ sender: NSPopUpButton) {
+        let index = sender.indexOfSelectedItem - 1
+        if store.sections.indices.contains(index) { store.choose(store.sections[index]) }
+    }
+    @objc private func signIn() { store.signIn() }
+    @objc private func discover() { store.discover() }
+    @objc private func signOut() { store.signOut() }
+    @objc private func cancelJob() { store.cancel() }
+    @objc private func done() { store.cancel(); store.showConnection = false }
 }
