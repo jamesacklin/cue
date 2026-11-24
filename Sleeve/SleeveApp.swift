@@ -10,7 +10,10 @@ struct SleeveApp: App {
                 .environmentObject(library)
                 .tint(.sleeveAccent)
                 .frame(minWidth: 750, minHeight: 540)
-                .task { library.restore() }
+                .task {
+                    // The unit-test host uses fixtures and must never open the listener’s Keychain.
+                    if NSClassFromString("XCTestCase") == nil { library.restore() }
+                }
         }
         .defaultSize(width: 980, height: 815)
         .commands {

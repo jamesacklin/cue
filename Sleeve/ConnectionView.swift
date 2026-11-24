@@ -6,7 +6,7 @@ struct ConnectionView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack {
-                PageHeading(title: "Plex Connection", detail: library.server?.name ?? "Music libraries")
+                PageHeading(title: "Plex Connection", detail: library.server?.name ?? (library.signedIn ? "Signed in to Plex" : "Music libraries"))
                 Spacer()
                 Button("Done") { library.showConnection = false }.keyboardShortcut(.cancelAction)
             }
@@ -29,7 +29,7 @@ struct ConnectionView: View {
                     Text("No servers available. Make sure your Plex Media Server is online and shared with this account.")
                         .foregroundStyle(.secondary)
                 } else {
-                    Text("Server").font(.headline)
+                    Text("Choose a server").font(.headline)
                     ScrollView {
                         VStack(alignment: .leading, spacing: 5) {
                             ForEach(library.resources) { resource in
@@ -40,7 +40,7 @@ struct ConnectionView: View {
                         }
                     }.frame(maxHeight: min(135, CGFloat(library.resources.count * 33)))
                     if let server = library.proposedServer {
-                        Text("Music library").font(.headline)
+                        Text("Choose a music library").font(.headline)
                         if library.sections.isEmpty {
                             Text("There are no music libraries on \(server.name) available to this account.").foregroundStyle(.secondary)
                         } else {

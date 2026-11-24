@@ -7,6 +7,24 @@ enum CoverCache {
         cache.totalCostLimit = 80 * 1024 * 1024
         return cache
     }()
+
+    @MainActor static func load(_ album: Album, library: LibraryStore) async -> NSImage? {
+        guard let server = library.server, let path = album.thumb,
+              (try? server.url(for: path)) != nil else { return nil }
+        let key = [server.id, path].joined(separator: "|") as NSString
+        if let cached = CoverCache.shared.object(forKey: key) { return cached }
+        guard let url = try? server.url(for: "/photo/:/transcode").appending(queryItems: [
+            URLQueryItem(name: "url", value: path), URLQueryItem(name: "width", value: "480"),
+            URLQueryItem(name: "height", value: "480"), URLQueryItem(name: "minSize", value: "1")
+        ]) else { return nil }
+        var req = library.client.request(url, token: server.token)
+        req.setValue("image/*", forHTTPHeaderField: "Accept")
+        guard let (data, response) = try? await library.client.session.data(for: req),
+              (response as? HTTPURLResponse)?.statusCode == 200,
+              let image = NSImage(data: data), !Task.isCancelled else { return nil }
+        CoverCache.shared.setObject(image, forKey: key, cost: 480 * 480 * 4)
+        return image
+    }
 }
 
 struct Artwork: View {
@@ -33,21 +51,7 @@ struct Artwork: View {
             .accessibilityHidden(true)
             .task(id: cacheKey) {
                 remote = nil
-                guard let server = library.server, let path = album.thumb,
-                      (try? server.url(for: path)) != nil else { return }
-                let key = cacheKey as NSString
-                if let cached = CoverCache.shared.object(forKey: key) { remote = cached; return }
-                guard let url = try? server.url(for: "/photo/:/transcode").appending(queryItems: [
-                    URLQueryItem(name: "url", value: path), URLQueryItem(name: "width", value: "480"),
-                    URLQueryItem(name: "height", value: "480"), URLQueryItem(name: "minSize", value: "1")
-                ]) else { return }
-                var req = library.client.request(url, token: server.token)
-                req.setValue("image/*", forHTTPHeaderField: "Accept")
-                guard let (data, response) = try? await library.client.session.data(for: req),
-                      (response as? HTTPURLResponse)?.statusCode == 200,
-                      let image = NSImage(data: data), !Task.isCancelled else { return }
-                CoverCache.shared.setObject(image, forKey: key, cost: 480 * 480 * 4)
-                remote = image
+                remote = await CoverCache.load(album, library: library)
             }
     }
 }

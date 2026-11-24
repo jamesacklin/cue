@@ -15,6 +15,17 @@ struct Album: Identifiable, Hashable {
     let added: Int
     let thumb: String?
     var sampleArt: String? = nil
+    var artistID: String? = nil
+    var imprint: String? = nil
+    var scenes: [String] = []
+    var genres: [String] = []
+    var styles: [String] = []
+    var artistTags: [String] = []
+
+    var routeID: String? {
+        if let artistID { return "id:" + artistID }
+        return artist == "Unknown Artist" ? nil : "name:" + artist
+    }
 }
 
 struct Track: Identifiable, Hashable {
@@ -57,8 +68,10 @@ enum Sample {
     ]
 
     static let albums: [Album] = records.enumerated().map { index, record in
-        Album(id: "sample-\(index)", title: record.0, artist: record.1, year: record.2,
-              added: records.count - index, thumb: nil, sampleArt: "cover-\(index)")
+        let imprints = ["Switchyard", "Quiet Hours", "Quiet Hours", "Quiet Hours", "Night Index", "Night Index"]
+        let scenes = ["Docklands", "North Loop", "North Loop", "Docklands", "Docklands", "North Loop"]
+        return Album(id: "sample-\(index)", title: record.0, artist: record.1, year: record.2,
+              added: records.count - index, thumb: nil, sampleArt: "cover-\(index)", imprint: imprints[index], scenes: [scenes[index]])
     }
 
     static func tracks(for album: Album) -> [Track] {

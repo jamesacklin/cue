@@ -10,6 +10,8 @@
 		084A5646325B619CCFC3A62A /* cover-2.jpg in Resources */ = {isa = PBXBuildFile; fileRef = B1408408FB8F08AB06C63874 /* cover-2.jpg */; };
 		097E0FD3C76E88EADC8BC650 /* ConnectionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0B7FF8F122B4A1089B278B38 /* ConnectionView.swift */; };
 		0BCCE0AC904E24E1E0FA6BC8 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 6E50C091577A83BEAEDB8E5D /* Assets.xcassets */; };
+		0DDC5C6761AE9DDB7277D67F /* TransitMap.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B32007E2CD47695458C29D1 /* TransitMap.swift */; };
+		0F82F213136C6BEE3B9776AD /* ImprintOrder.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC10F4E075433D402FB5E2D0 /* ImprintOrder.swift */; };
 		106E42C5F5B3F9C04C1BD96F /* cover-3.jpg in Resources */ = {isa = PBXBuildFile; fileRef = 91499D8481EC8F6FA942E450 /* cover-3.jpg */; };
 		14532BD3E97E0C87C04D07A1 /* cover-4.jpg in Resources */ = {isa = PBXBuildFile; fileRef = 70577657EB257D1D2A427A43 /* cover-4.jpg */; };
 		331F37C9A59A2AC7FF09F55D /* study-1-0.m4a in Resources */ = {isa = PBXBuildFile; fileRef = BD00DBCEB05597222A90CB00 /* study-1-0.m4a */; };
@@ -33,7 +35,9 @@
 		BB0C9837EBE9F927D05FD808 /* study-1-1.m4a in Resources */ = {isa = PBXBuildFile; fileRef = AEDF25C17C090E16CD734CE7 /* study-1-1.m4a */; };
 		C14A2448AC24673799601F0D /* SleeveApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = F423F821382A323A127A2320 /* SleeveApp.swift */; };
 		CEE21D6CC8FA25790DDEBBF9 /* LibraryWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = BAFCBD4D24F39D1E794EDC1B /* LibraryWindow.swift */; };
+		D18E06762D968A61027402C7 /* TransitMapTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5533B974532B815B552B2640 /* TransitMapTests.swift */; };
 		D9A72659C57BAC1EBD8546A5 /* study-0-0.m4a in Resources */ = {isa = PBXBuildFile; fileRef = 46787F91457B11F5618B6D0B /* study-0-0.m4a */; };
+		DE717F414E6740C2A8157FBC /* TransitStroke.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7F63C62908A4E2D3EB9AD257 /* TransitStroke.swift */; };
 		EFED91247C12FFCE16845913 /* LibraryStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3CCAE4925A6A3F35AF99ACFD /* LibraryStore.swift */; };
 		F2C02B3EAB4B98ABF89BBE4F /* study-4-1.m4a in Resources */ = {isa = PBXBuildFile; fileRef = 890145C51832AA34AC6BE637 /* study-4-1.m4a */; };
 		FC5AC6B41EB3BDEA46AC7D1A /* ListeningViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9DC1A1C62823F16D5FD60412 /* ListeningViews.swift */; };
@@ -60,7 +64,9 @@
 		3CCAE4925A6A3F35AF99ACFD /* LibraryStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryStore.swift; sourceTree = "<group>"; };
 		46787F91457B11F5618B6D0B /* study-0-0.m4a */ = {isa = PBXFileReference; path = "study-0-0.m4a"; sourceTree = "<group>"; };
 		46E0B98BF1897C7DDFDD3FC1 /* Music.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Music.swift; sourceTree = "<group>"; };
+		4B32007E2CD47695458C29D1 /* TransitMap.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TransitMap.swift; sourceTree = "<group>"; };
 		54B467D7FBDA11DABD229ED5 /* Artwork.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Artwork.swift; sourceTree = "<group>"; };
+		5533B974532B815B552B2640 /* TransitMapTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TransitMapTests.swift; sourceTree = "<group>"; };
 		58F5A7280C80595CE9B72B84 /* PlexClientTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlexClientTests.swift; sourceTree = "<group>"; };
 		6506C0009F3B535DD4CD3923 /* cover-5.jpg */ = {isa = PBXFileReference; lastKnownFileType = image.jpeg; path = "cover-5.jpg"; sourceTree = "<group>"; };
 		652C32635D359869B7D13B9C /* study-2-1.m4a */ = {isa = PBXFileReference; path = "study-2-1.m4a"; sourceTree = "<group>"; };
@@ -68,6 +74,7 @@
 		70577657EB257D1D2A427A43 /* cover-4.jpg */ = {isa = PBXFileReference; lastKnownFileType = image.jpeg; path = "cover-4.jpg"; sourceTree = "<group>"; };
 		7420DFD8763EF4EF7D1493F0 /* study-3-0.m4a */ = {isa = PBXFileReference; path = "study-3-0.m4a"; sourceTree = "<group>"; };
 		7541A02D9171DF2888298F0E /* study-5-0.m4a */ = {isa = PBXFileReference; path = "study-5-0.m4a"; sourceTree = "<group>"; };
+		7F63C62908A4E2D3EB9AD257 /* TransitStroke.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TransitStroke.swift; sourceTree = "<group>"; };
 		86B812A057F382EE3D19A221 /* Sleeve.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Sleeve.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		890145C51832AA34AC6BE637 /* study-4-1.m4a */ = {isa = PBXFileReference; path = "study-4-1.m4a"; sourceTree = "<group>"; };
 		91499D8481EC8F6FA942E450 /* cover-3.jpg */ = {isa = PBXFileReference; lastKnownFileType = image.jpeg; path = "cover-3.jpg"; sourceTree = "<group>"; };
@@ -77,6 +84,7 @@
 		AEDF25C17C090E16CD734CE7 /* study-1-1.m4a */ = {isa = PBXFileReference; path = "study-1-1.m4a"; sourceTree = "<group>"; };
 		B1408408FB8F08AB06C63874 /* cover-2.jpg */ = {isa = PBXFileReference; lastKnownFileType = image.jpeg; path = "cover-2.jpg"; sourceTree = "<group>"; };
 		BAFCBD4D24F39D1E794EDC1B /* LibraryWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryWindow.swift; sourceTree = "<group>"; };
+		BC10F4E075433D402FB5E2D0 /* ImprintOrder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImprintOrder.swift; sourceTree = "<group>"; };
 		BD00DBCEB05597222A90CB00 /* study-1-0.m4a */ = {isa = PBXFileReference; path = "study-1-0.m4a"; sourceTree = "<group>"; };
 		C627EA12DCE1C664149E3074 /* SleeveTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = SleeveTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		C67DE66AE22C05D33F4795A4 /* study-5-1.m4a */ = {isa = PBXFileReference; path = "study-5-1.m4a"; sourceTree = "<group>"; };
@@ -92,6 +100,7 @@
 			children = (
 				CBAE8121079BBBF034B317EB /* PlaybackTests.swift */,
 				58F5A7280C80595CE9B72B84 /* PlexClientTests.swift */,
+				5533B974532B815B552B2640 /* TransitMapTests.swift */,
 			);
 			path = SleeveTests;
 			sourceTree = "<group>";
@@ -112,6 +121,7 @@
 				6E50C091577A83BEAEDB8E5D /* Assets.xcassets */,
 				0B7FF8F122B4A1089B278B38 /* ConnectionView.swift */,
 				0A2B6643171EAFD68A88A93A /* Credentials.swift */,
+				BC10F4E075433D402FB5E2D0 /* ImprintOrder.swift */,
 				3CCAE4925A6A3F35AF99ACFD /* LibraryStore.swift */,
 				BAFCBD4D24F39D1E794EDC1B /* LibraryWindow.swift */,
 				9DC1A1C62823F16D5FD60412 /* ListeningViews.swift */,
@@ -119,6 +129,8 @@
 				37378CC5D2E70D06EACE6577 /* Player.swift */,
 				0349DBA43A494CB6C6B561B7 /* PlexClient.swift */,
 				F423F821382A323A127A2320 /* SleeveApp.swift */,
+				4B32007E2CD47695458C29D1 /* TransitMap.swift */,
+				7F63C62908A4E2D3EB9AD257 /* TransitStroke.swift */,
 				E45223416284CF0ECADE25D4 /* Resources */,
 			);
 			path = Sleeve;
@@ -271,6 +283,7 @@
 				FF3A7D27147A4B9E8F69F7D3 /* Artwork.swift in Sources */,
 				097E0FD3C76E88EADC8BC650 /* ConnectionView.swift in Sources */,
 				A541A82DB0E15C693C800AC4 /* Credentials.swift in Sources */,
+				0F82F213136C6BEE3B9776AD /* ImprintOrder.swift in Sources */,
 				EFED91247C12FFCE16845913 /* LibraryStore.swift in Sources */,
 				CEE21D6CC8FA25790DDEBBF9 /* LibraryWindow.swift in Sources */,
 				FC5AC6B41EB3BDEA46AC7D1A /* ListeningViews.swift in Sources */,
@@ -278,6 +291,8 @@
 				627089CF80AFE734AD3E74F5 /* Player.swift in Sources */,
 				A8C5430D30142BA7270311BA /* PlexClient.swift in Sources */,
 				C14A2448AC24673799601F0D /* SleeveApp.swift in Sources */,
+				0DDC5C6761AE9DDB7277D67F /* TransitMap.swift in Sources */,
+				DE717F414E6740C2A8157FBC /* TransitStroke.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -287,6 +302,7 @@
 			files = (
 				BA3FA44975FAC779D3B9FAE8 /* PlaybackTests.swift in Sources */,
 				6D6F8BB77AE58B6AE7BCB183 /* PlexClientTests.swift in Sources */,
+				D18E06762D968A61027402C7 /* TransitMapTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

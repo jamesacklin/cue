@@ -1,9 +1,10 @@
 import SwiftUI
 
 enum LibraryPage: String, CaseIterable {
-    case albums = "Albums", artists = "Artists", queue = "Play Queue"
+    case transit = "Transit Map", albums = "Albums", artists = "Artists", queue = "Play Queue"
     var icon: String {
         switch self {
+        case .transit: "point.3.connected.trianglepath.dotted"
         case .albums: "square.stack"
         case .artists: "music.mic"
         case .queue: "music.note.list"
@@ -19,6 +20,7 @@ struct LibraryWindow: View {
     @EnvironmentObject private var library: LibraryStore
     @AppStorage("albumCoverSize") private var coverSize: Double = 220
     @State private var page: LibraryPage? = .albums
+    @State private var mapDestination: MapDestination?
     @State private var album: Album?
     @State private var artist: String?
     @State private var search = ""
@@ -47,7 +49,7 @@ struct LibraryWindow: View {
                     }.padding(.leading, 19).padding(.top, 12).padding(.bottom, 28)
                     List(selection: $page) {
                         Section("Library") {
-                            ForEach([LibraryPage.albums, .artists], id: \.self) { item in
+                            ForEach([LibraryPage.albums, .artists, .transit], id: \.self) { item in
                                 Label(item.rawValue, systemImage: item.icon).tag(item)
                             }
                         }
@@ -71,8 +73,17 @@ struct LibraryWindow: View {
                 .navigationSplitViewColumnWidth(min: 160, ideal: 190, max: 240)
             } detail: {
                 Group {
-                    if let album {
-                        AlbumDetail(album: album)
+                    if page == .transit {
+                        ZStack {
+                            TransitMap(albums: library.albums, search: search, destination: mapDestination) { album = $0 }
+                                .id(library.revision)
+                                .opacity(album == nil ? 1 : 0)
+                                .accessibilityHidden(album != nil)
+                                .allowsHitTesting(album == nil)
+                            if let album { AlbumDetail(album: album, showOnMap: { showOnMap(album) }) }
+                        }
+                    } else if let album {
+                        AlbumDetail(album: album, showOnMap: { showOnMap(album) })
                     } else if page == .queue {
                         QueueView(player: library.player)
                     } else if page == .artists && artist == nil {
@@ -119,11 +130,21 @@ struct LibraryWindow: View {
             Button("Find in Library") { if page == .queue { page = .albums }; album = nil; searching = true }
                 .keyboardShortcut("f").hidden()
         }
-        .onChange(of: page) { _, _ in album = nil; artist = nil; search = "" }
-        .onChange(of: library.revision) { _, _ in album = nil; artist = nil; search = "" }
+        .onChange(of: page) { _, next in
+            album = nil; artist = nil; search = ""
+            if next != .transit { mapDestination = nil }
+        }
+        .onChange(of: library.revision) { _, _ in mapDestination = nil; album = nil; artist = nil; search = "" }
         .sheet(isPresented: $library.showConnection, onDismiss: { library.cancel() }) {
             ConnectionView()
         }
+    }
+
+    private func showOnMap(_ target: Album) {
+        mapDestination = MapDestination(albumID: target.id)
+        search = ""
+        album = nil
+        page = .transit
     }
 
     private var albumShelf: some View {

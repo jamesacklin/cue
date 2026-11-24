@@ -2,6 +2,7 @@ import SwiftUI
 
 struct AlbumDetail: View {
     let album: Album
+    let showOnMap: () -> Void
     @EnvironmentObject private var library: LibraryStore
     @State private var tracks: [Track] = []
     @State private var loading = true
@@ -18,14 +19,18 @@ struct AlbumDetail: View {
                         Text(album.artist).font(.title3)
                         Text([album.year.map(String.init), tracks.isEmpty ? nil : trackCount(tracks.count)]
                             .compactMap { $0 }.joined(separator: "  ·  ")).foregroundStyle(.secondary)
-                        Button {
-                            if let first = tracks.first(where: { $0.localFile != nil || $0.part != nil }) {
-                                library.play(tracks, from: first.id, album: album)
+                        HStack(spacing: 8) {
+                            Button {
+                                if let first = tracks.first(where: { $0.localFile != nil || $0.part != nil }) {
+                                    library.play(tracks, from: first.id, album: album)
+                                }
+                            } label: { Label("Play Album", systemImage: "play.fill") }
+                                .buttonStyle(.borderedProminent)
+                                .disabled(!tracks.contains { $0.localFile != nil || $0.part != nil })
+                            Button(action: showOnMap) {
+                                Label("Show on Map", systemImage: "map")
                             }
-                        } label: { Label("Play Album", systemImage: "play.fill") }
-                            .buttonStyle(.borderedProminent)
-                            .disabled(!tracks.contains { $0.localFile != nil || $0.part != nil })
-                            .padding(.top, 6)
+                        }.padding(.top, 6)
                     }
                 }
                 Divider()

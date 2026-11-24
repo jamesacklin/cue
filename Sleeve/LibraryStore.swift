@@ -1,5 +1,6 @@
 import AppKit
 import Combine
+import OSLog
 
 @MainActor
 final class LibraryStore: ObservableObject {
@@ -17,8 +18,10 @@ final class LibraryStore: ObservableObject {
 
     let client: PlexClient
     let player = Player()
+    private let log = Logger(subsystem: "org.sleeveplayer.Sleeve", category: "PlexConnection")
     private var token: String?
     private var job: Task<Void, Never>?
+    private var albumPlayback: Task<Void, Never>?
     private var didRestore = false
     private let defaults = UserDefaults.standard
 
@@ -34,6 +37,7 @@ final class LibraryStore: ObservableObject {
         do {
             token = try Credentials.plex.read()
             signedIn = token != nil
+            log.notice("Restored account credential: \(self.signedIn, privacy: .public)")
             if signedIn { discover(restoreSelection: true) }
         } catch {
             connectionError = error.localizedDescription
@@ -55,6 +59,9 @@ final class LibraryStore: ObservableObject {
             do { try await work() }
             catch {
                 guard !Task.isCancelled else { return }
+                // Activity can include a server name. Keep only the phase in diagnostics.
+                let phase = activity?.components(separatedBy: " ").first ?? "connection"
+                log.error("Connection failed during \(phase, privacy: .public), code \((error as NSError).code, privacy: .public)")
                 connectionError = error.localizedDescription
                 showConnection = true
             }
@@ -72,6 +79,7 @@ final class LibraryStore: ObservableObject {
             activity = "Waiting for browser sign-in…"
             let value = try await client.poll(pin)
             try Task.checkCancellation()
+            activity = "Saving account credential…"
             try Credentials.plex.save(value)
             token = value
             signedIn = true
@@ -88,6 +96,7 @@ final class LibraryStore: ObservableObject {
         guard let token else { throw MusicError("Sign in to Plex to find your servers.") }
         let list = try await client.resources(token: token)
         try Task.checkCancellation()
+        log.notice("Server discovery completed: \(list.count, privacy: .public) available")
         resources = list
         proposedServer = nil
         sections = []
@@ -113,6 +122,7 @@ final class LibraryStore: ObservableObject {
         let (connected, libraries) = try await client.connect(resource)
         try Task.checkCancellation()
         proposedServer = connected
+        log.notice("Connected to server: \(libraries.count, privacy: .public) music sections")
         sections = libraries
     }
 
@@ -165,7 +175,27 @@ final class LibraryStore: ObservableObject {
         return Sample.tracks(for: album)
     }
 
+    func playAlbum(_ album: Album) {
+        albumPlayback?.cancel()
+        let requestedRevision = revision
+        albumPlayback = Task {
+            do {
+                let tracks = try await tracks(for: album)
+                guard !Task.isCancelled, revision == requestedRevision else { return }
+                guard let first = tracks.first(where: { $0.localFile != nil || $0.part != nil }) else {
+                    player.error = "There are no playable tracks on this album."
+                    return
+                }
+                play(tracks, from: first.id, album: album)
+            } catch {
+                if !Task.isCancelled, revision == requestedRevision { player.error = error.localizedDescription }
+            }
+        }
+    }
+
     func play(_ tracks: [Track], from id: String, album: Album) {
+        albumPlayback?.cancel()
+        albumPlayback = nil
         let entries = tracks.compactMap { track -> QueueEntry? in
             guard let url = track.localFile ?? (try? server?.stream(for: track)) else { return nil }
             return QueueEntry(track: track, album: album, url: url)

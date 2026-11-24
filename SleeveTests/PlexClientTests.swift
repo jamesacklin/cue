@@ -12,12 +12,14 @@ private final class FixtureProtocol: URLProtocol {
         func value(_ name: String) -> String? { query.first { $0.name == name }?.value }
         var status = 200
         let json: Any
+        var rawBody: Data?
         switch url.path {
         case "/api/v2/pins":
             XCTAssertEqual(request.httpMethod, "POST")
             XCTAssertEqual(value("strong"), "true")
             json = ["id": 8, "code": "sample-pin", "expiresIn": 5]
         case "/api/v2/pins/8":
+            XCTAssertEqual(value("code"), "sample-pin")
             json = ["id": 8, "code": "sample-pin", "authToken": "fixture-account"]
         case "/api/v2/resources":
             XCTAssertEqual(request.value(forHTTPHeaderField: "X-Plex-Token"), "fixture-account")
@@ -45,9 +47,33 @@ private final class FixtureProtocol: URLProtocol {
             XCTAssertEqual(value("type"), "9")
             XCTAssertEqual(value("X-Plex-Container-Size"), "250")
             let offset = Int(value("X-Plex-Container-Start") ?? "")!
-            let row: [String: Any] = ["ratingKey": "\(offset + 1)", "title": "Record \(offset + 1)",
+            var row: [String: Any] = ["ratingKey": "\(offset + 1)", "title": "Record \(offset + 1)",
                                       "parentTitle": "The Band", "year": 2025]
+            if offset == 0 {
+                row["parentRatingKey"] = 7
+                row["ratingKey"] = 1
+                row["Media"] = "unused in album listings"
+                row["Style"] = [["tag": "Drone"]]
+                row["Genre"] = [["tag": "Ambient"]]
+                row["studio"] = "  Test Imprint  "
+                row["Collection"] = [["tag": "Favorites"], ["tag": "Scene: Docklands"], ["tag": "Scene: "]]
+            }
+            if offset == 1 {
+                let xml = #"<MediaContainer totalSize="2" size="1"><Directory type="album" ratingKey="2" title="Second" parentTitle="The Band" studio="Second label" year="1999"><Genre tag="Techno"/><Style tag="Dub Techno"/><Collection tag="Scene: Coast"/></Directory></MediaContainer>"#
+                rawBody = Data((request.value(forHTTPHeaderField: "Accept") == "application/xml" ? xml : "{").utf8)
+            }
             json = ["MediaContainer": ["totalSize": 2, "offset": offset, "Metadata": [row]]]
+        case "/library/sections/6/all":
+            json = ["MediaContainer": ["totalSize": 2, "Metadata": [
+                ["ratingKey": "70", "studio": "One", "parentRatingKey": "90"],
+                ["ratingKey": "71", "studio": "Two", "parentRatingKey": "91"]
+            ]]]
+        case "/library/metadata/70,71":
+            json = ["MediaContainer": ["Metadata": [
+                ["ratingKey": "71"], ["ratingKey": "70", "Style": [["tag": "Drone"]]]
+            ]]]
+        case "/library/metadata/91":
+            json = ["MediaContainer": ["Metadata": [["ratingKey": "91", "Genre": [["tag": "Ambient"]]]]]]
         case "/library/metadata/1/children":
             json = ["MediaContainer": ["Metadata": [
                 ["ratingKey": "12", "title": "Coda", "parentIndex": 2, "index": 1],
@@ -61,7 +87,7 @@ private final class FixtureProtocol: URLProtocol {
         XCTAssertEqual(request.value(forHTTPHeaderField: "X-Plex-Client-Identifier"), "test-client")
         client?.urlProtocol(self, didReceive: HTTPURLResponse(url: url, statusCode: status, httpVersion: nil,
                                                                headerFields: nil)!, cacheStoragePolicy: .notAllowed)
-        client?.urlProtocol(self, didLoad: try! JSONSerialization.data(withJSONObject: json))
+        client?.urlProtocol(self, didLoad: rawBody ?? (try! JSONSerialization.data(withJSONObject: json)))
         client?.urlProtocolDidFinishLoading(self)
     }
 }
@@ -107,6 +133,16 @@ final class PlexClientTests: XCTestCase {
         let section = LibrarySection(key: "4", title: "Music", type: "artist")
         let albums = try await api.albums(section: section, on: server)
         XCTAssertEqual(albums.map(\.id), ["1", "2"])
+        XCTAssertEqual(albums[0].routeID, "id:7")
+        XCTAssertEqual(albums[0].imprint, "Test Imprint")
+        XCTAssertEqual(albums[0].scenes, ["Docklands"])
+        XCTAssertEqual(albums[0].styles, ["Drone"])
+        XCTAssertEqual(albums[1].styles, ["Dub Techno"])
+        XCTAssertEqual(albums[0].genres, ["Ambient"])
+        XCTAssertEqual(albums[1].genres, ["Techno"])
+        XCTAssertEqual(albums[1].imprint, "Second label")
+        XCTAssertEqual(albums[1].scenes, ["Coast"])
+        XCTAssertEqual(albums[1].year, 1999)
         let tracks = try await api.tracks(album: try XCTUnwrap(albums.first), on: server)
         XCTAssertEqual(tracks.map(\.title), ["Prelude", "Coda"])
         XCTAssertEqual(tracks.first?.duration, 94.5)
@@ -115,6 +151,13 @@ final class PlexClientTests: XCTestCase {
         let query = try XCTUnwrap(URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems)
         XCTAssertEqual(query, [URLQueryItem(name: "download", value: "0"), URLQueryItem(name: "X-Plex-Token", value: "fixture-server")])
         XCTAssertThrowsError(try server.stream(for: tracks[1]))
+    }
+
+    func testMissingTagsUseBatchedAlbumDetailsThenArtistFallback() async throws {
+        let albums = try await client.albums(section: LibrarySection(key: "6", title: "Music", type: "artist"), on: server)
+        XCTAssertEqual(albums.map(\.styles), [["Drone"], []])
+        XCTAssertEqual(albums.map(\.artistTags), [[], ["Ambient"]])
+        XCTAssertEqual(albums.map(\.genres), [[], []])
     }
 
     func testMediaKeysRemainOnSelectedServer() {

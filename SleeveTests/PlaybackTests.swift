@@ -18,6 +18,18 @@ final class PlaybackTests: XCTestCase {
         }
     }
 
+    func testAlbumPlaybackQueuesLatestRequestedAlbumFromFirstTrack() async throws {
+        let store = LibraryStore()
+        store.player.volume = 0
+        defer { store.player.reset() }
+        store.playAlbum(Sample.albums[0])
+        let album = Sample.albums[1]
+        store.playAlbum(album)
+        try await wait { store.player.playing }
+        XCTAssertEqual(store.player.queue.map(\.track.id), Sample.tracks(for: album).map(\.id))
+        XCTAssertEqual(store.player.index, 0)
+    }
+
     func testPlayingSeekingAndAutomaticAdvance() async throws {
         let player = Player()
         player.volume = 0
