@@ -1,6 +1,6 @@
 .DS_Store
 .build/
-/Sleeve.app/
+/Cue.app/
 DerivedData/
 xcuserdata/
 *.xcuserstate

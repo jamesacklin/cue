@@ -49,19 +49,19 @@ The benchmark drove the AppKit search handler with successive prefixes of six te
 
 ## Build and run
 
-Open `Sleeve.xcodeproj`, choose the **Sleeve** scheme and **My Mac**, and press **⌘R**. From the project directory:
+Open `Cue.xcodeproj`, choose the **Cue** scheme and **My Mac**, and press **⌘R**. From the project directory:
 
 ```sh
-xcodebuild -project Sleeve.xcodeproj -scheme Sleeve -configuration Release -derivedDataPath .build build
+xcodebuild -project Cue.xcodeproj -scheme Cue -configuration Release -derivedDataPath .build build
 open ".build/Build/Products/Release/Cue.app"
 ```
 
 ## Verify
 
 ```sh
-xcodebuild -project Sleeve.xcodeproj -scheme Sleeve -derivedDataPath .build -destination 'platform=macOS' -parallel-testing-enabled NO test
+xcodebuild -project Cue.xcodeproj -scheme Cue -derivedDataPath .build -destination 'platform=macOS' -parallel-testing-enabled NO test
 ```
 
 The tests use a URLProtocol fixture for Plex and AVFoundation for local playback. They cover sign-in, connection fallback, paging, search, XML fallback, track ordering, authenticated URLs, seeking and automatic advance. A synthetic million-artist catalog exercises random access and a partial final batch. AppKit tests scroll through a 100,003-album search result and check the footer slider during playback, pause, and seeking. Live playback requires a reachable Plex server and an audio format macOS can direct-play.
 
-This repository preserves the history of [Sleeve’s utility-player-baseline tag](https://github.com/jamesacklin/sleeve/tree/utility-player-baseline).
+The `utility-player-baseline` Git tag marks the original player.

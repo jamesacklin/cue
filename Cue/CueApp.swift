@@ -2,10 +2,10 @@ import AppKit
 
 @main
 @MainActor
-final class SleeveApp: NSObject, NSApplicationDelegate {
+final class CueApp: NSObject, NSApplicationDelegate {
     static func main() {
         let app = NSApplication.shared
-        let delegate = SleeveApp()
+        let delegate = CueApp()
         app.setActivationPolicy(.regular)
         app.delegate = delegate
         withExtendedLifetime(delegate) { app.run() }

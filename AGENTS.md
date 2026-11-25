@@ -1,6 +1,6 @@
 # Cue
 
-Use the checked-in Xcode project and the Sleeve scheme. Build and test commands are in README.md. Run `xcodegen generate` after adding or removing source files or bundled resources, or after changing project.yml.
+Use the checked-in Xcode project and the Cue scheme. Build and test commands are in README.md. Run `xcodegen generate` after adding or removing source files or bundled resources, or after changing project.yml.
 
 - LibraryWindow.swift owns AppKit navigation, the reusable table, keyboard search and lazy loading. The active tab and search determine which rows to request. Cancel stale requests before applying UI changes.
 - LibraryStore.swift manages sign-in, server and music section selection, restoration and playback requests. Validate the first page before switching libraries. Clear the queue on a library change.

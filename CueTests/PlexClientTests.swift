@@ -1,6 +1,6 @@
 import AppKit
 import XCTest
-@testable import Sleeve
+@testable import Cue
 
 private final class FixtureProtocol: URLProtocol {
     override class func canInit(with request: URLRequest) -> Bool { true }
@@ -176,7 +176,7 @@ private final class FixtureProtocol: URLProtocol {
 
 final class PlexClientTests: XCTestCase {
     func testKeychainSavesUpdatesAndClearsAnIsolatedCredential() throws {
-        let credentials = Credentials(service: "org.sleeveplayer.tests." + UUID().uuidString)
+        let credentials = Credentials(service: "org.cueplayer.tests." + UUID().uuidString)
         defer { try? credentials.clear() }
         XCTAssertNil(try credentials.read())
         try credentials.save("fixture-one")

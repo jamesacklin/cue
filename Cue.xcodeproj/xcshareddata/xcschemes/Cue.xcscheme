@@ -16,10 +16,10 @@
             buildForAnalyzing = "YES">
             <BuildableReference
                BuildableIdentifier = "primary"
-               BlueprintIdentifier = "BFD38BAE4A3D32311F0371FC"
+               BlueprintIdentifier = "633C62679D75DCE6F0007FB2"
                BuildableName = "Cue.app"
-               BlueprintName = "Sleeve"
-               ReferencedContainer = "container:Sleeve.xcodeproj">
+               BlueprintName = "Cue"
+               ReferencedContainer = "container:Cue.xcodeproj">
             </BuildableReference>
          </BuildActionEntry>
       </BuildActionEntries>
@@ -33,10 +33,10 @@
       <MacroExpansion>
          <BuildableReference
             BuildableIdentifier = "primary"
-            BlueprintIdentifier = "BFD38BAE4A3D32311F0371FC"
+            BlueprintIdentifier = "633C62679D75DCE6F0007FB2"
             BuildableName = "Cue.app"
-            BlueprintName = "Sleeve"
-            ReferencedContainer = "container:Sleeve.xcodeproj">
+            BlueprintName = "Cue"
+            ReferencedContainer = "container:Cue.xcodeproj">
          </BuildableReference>
       </MacroExpansion>
       <Testables>
@@ -45,10 +45,10 @@
             parallelizable = "NO">
             <BuildableReference
                BuildableIdentifier = "primary"
-               BlueprintIdentifier = "65A2B8963A4E3490A210474F"
-               BuildableName = "SleeveTests.xctest"
-               BlueprintName = "SleeveTests"
-               ReferencedContainer = "container:Sleeve.xcodeproj">
+               BlueprintIdentifier = "BD4EB028AE56C4884FB53C0C"
+               BuildableName = "CueTests.xctest"
+               BlueprintName = "CueTests"
+               ReferencedContainer = "container:Cue.xcodeproj">
             </BuildableReference>
          </TestableReference>
       </Testables>
@@ -69,10 +69,10 @@
          runnableDebuggingMode = "0">
          <BuildableReference
             BuildableIdentifier = "primary"
-            BlueprintIdentifier = "BFD38BAE4A3D32311F0371FC"
+            BlueprintIdentifier = "633C62679D75DCE6F0007FB2"
             BuildableName = "Cue.app"
-            BlueprintName = "Sleeve"
-            ReferencedContainer = "container:Sleeve.xcodeproj">
+            BlueprintName = "Cue"
+            ReferencedContainer = "container:Cue.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
    </LaunchAction>
@@ -86,10 +86,10 @@
          runnableDebuggingMode = "0">
          <BuildableReference
             BuildableIdentifier = "primary"
-            BlueprintIdentifier = "BFD38BAE4A3D32311F0371FC"
+            BlueprintIdentifier = "633C62679D75DCE6F0007FB2"
             BuildableName = "Cue.app"
-            BlueprintName = "Sleeve"
-            ReferencedContainer = "container:Sleeve.xcodeproj">
+            BlueprintName = "Cue"
+            ReferencedContainer = "container:Cue.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
    </ProfileAction>

@@ -19,7 +19,7 @@ final class LibraryStore: ObservableObject {
 
     let client: PlexClient
     let player = Player()
-    private let log = Logger(subsystem: "org.sleeveplayer.Minimal", category: "PlexConnection")
+    private let log = Logger(subsystem: "org.cueplayer.Minimal", category: "PlexConnection")
     private var token: String?
     private var job: Task<Void, Never>?
     private var albumPlayback: Task<Void, Never>?

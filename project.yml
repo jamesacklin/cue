@@ -1,4 +1,4 @@
-name: Sleeve
+name: Cue
 options:
   deploymentTarget:
     macOS: '14.0'
@@ -9,18 +9,18 @@ settings:
     CODE_SIGN_IDENTITY: '-'
     CODE_SIGN_STYLE: Manual
     ENABLE_HARDENED_RUNTIME: YES
-    MARKETING_VERSION: '0.1.6'
-    CURRENT_PROJECT_VERSION: '8'
+    MARKETING_VERSION: '0.1.7'
+    CURRENT_PROJECT_VERSION: '9'
 targets:
-  Sleeve:
+  Cue:
     type: application
     platform: macOS
-    sources: [Sleeve]
+    sources: [Cue]
     productName: Cue
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: org.sleeveplayer.Minimal
-        PRODUCT_MODULE_NAME: Sleeve
+        PRODUCT_BUNDLE_IDENTIFIER: org.cueplayer.Minimal
+        PRODUCT_MODULE_NAME: Cue
         PRODUCT_NAME: Cue
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.music
@@ -28,20 +28,20 @@ targets:
         ENABLE_APP_SANDBOX: YES
         ENABLE_OUTGOING_NETWORK_CONNECTIONS: YES
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
-  SleeveTests:
+  CueTests:
     type: bundle.unit-test
     platform: macOS
-    sources: [SleeveTests]
+    sources: [CueTests]
     dependencies:
-      - target: Sleeve
+      - target: Cue
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: org.sleeveplayer.MinimalTests
+        PRODUCT_BUNDLE_IDENTIFIER: org.cueplayer.MinimalTests
         GENERATE_INFOPLIST_FILE: YES
 schemes:
-  Sleeve:
+  Cue:
     build:
       targets:
-        Sleeve: all
+        Cue: all
     test:
-      targets: [SleeveTests]
+      targets: [CueTests]

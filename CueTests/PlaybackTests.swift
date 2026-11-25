@@ -2,7 +2,7 @@ import AppKit
 import MediaPlayer
 import AVFoundation
 import XCTest
-@testable import Sleeve
+@testable import Cue
 
 @MainActor
 final class PlaybackTests: XCTestCase {

@@ -2,7 +2,7 @@ import Foundation
 import Security
 
 struct Credentials {
-    static let plex = Credentials(service: "org.sleeveplayer.Minimal")
+    static let plex = Credentials(service: "org.cueplayer.Minimal")
     let service: String
     private var query: [String: Any] {
         [kSecClass as String: kSecClassGenericPassword,

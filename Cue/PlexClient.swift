@@ -1,7 +1,7 @@
 import Foundation
 import OSLog
 
-private let connectionLog = Logger(subsystem: "org.sleeveplayer.Minimal", category: "PlexConnection")
+private let connectionLog = Logger(subsystem: "org.cueplayer.Minimal", category: "PlexConnection")
 
 struct PlexResource: Decodable, Identifiable {
     struct Connection: Decodable {
