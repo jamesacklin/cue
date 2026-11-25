@@ -2,12 +2,13 @@ import AppKit
 import AVKit
 import Combine
 
-extension NSColor {
-    static let cuePanel = NSColor(srgbRed: 0.10, green: 0.11, blue: 0.15, alpha: 1)
-}
-
 @MainActor
 func drawWindowGradient(in view: NSView, reversed: Bool = false) {
+    if NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast {
+        NSColor.windowBackgroundColor.setFill()
+        view.bounds.fill()
+        return
+    }
     let dark = view.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
     let light = NSColor(srgbRed: dark ? 0.24 : 0.93, green: dark ? 0.24 : 0.93, blue: dark ? 0.25 : 0.94, alpha: 1)
     let deep = NSColor(srgbRed: dark ? 0.15 : 0.80, green: dark ? 0.15 : 0.80, blue: dark ? 0.16 : 0.81, alpha: 1)
@@ -114,6 +115,7 @@ final class Transport: NSStackView, @preconcurrency AVRoutePickerViewDelegate {
         volume.target = self
         volume.action = #selector(setVolume)
         volume.setAccessibilityLabel("Volume")
+        volume.setAccessibilityValueDescription(player.volume.formatted(.percent))
         volume.widthAnchor.constraint(equalToConstant: 70).isActive = true
         controls.addArrangedSubview(volume)
         addArrangedSubview(controls)
@@ -171,6 +173,7 @@ final class Transport: NSStackView, @preconcurrency AVRoutePickerViewDelegate {
         if let displayedSeconds, displayedSeconds == seconds { return }
         displayedSeconds = seconds
         time.stringValue = "\(timeLabel(elapsed)) / \(timeLabel(length.rounded()))"
+        seek.setAccessibilityValueDescription("\(timeLabel(elapsed)) of \(timeLabel(length.rounded()))")
     }
     @objc private func previous() { player.previous() }
     func routePickerViewWillBeginPresentingRoutes(_ routePickerView: AVRoutePickerView) {
@@ -184,7 +187,10 @@ final class Transport: NSStackView, @preconcurrency AVRoutePickerViewDelegate {
 
     @objc private func next() { player.next() }
     @objc private func scrub() { player.seek(to: seek.doubleValue) }
-    @objc private func setVolume() { player.volume = volume.doubleValue }
+    @objc private func setVolume() {
+        player.volume = volume.doubleValue
+        volume.setAccessibilityValueDescription(player.volume.formatted(.percent))
+    }
 
     func showOutputPicker(in window: NSWindow) {
         let alert = NSAlert()

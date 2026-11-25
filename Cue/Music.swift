@@ -13,6 +13,11 @@ struct Album: Identifiable, Hashable {
     let artist: String
     let year: Int?
     var addedAt: Int? = nil
+    var artistID: String? = nil
+}
+
+enum ArtistFilter: Equatable {
+    case id(String), name(String)
 }
 
 struct Track: Identifiable, Hashable {
@@ -164,6 +169,13 @@ extension CatalogOrder {
 enum Catalog: Int, CaseIterable {
     case albums, artists, tracks
     var title: String { ["Albums", "Artists", "Tracks"][rawValue] }
+    var symbol: String {
+        switch self {
+        case .albums: "square.stack"
+        case .artists: "person.2"
+        case .tracks: "music.note"
+        }
+    }
     var plexType: String { ["9", "8", "10"][rawValue] }
 }
 

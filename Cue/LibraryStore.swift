@@ -16,8 +16,10 @@ final class LibraryStore: ObservableObject {
 
     private var firstPage: CatalogPage?
     private var trackArtistIndex: TrackArtistIndex?
+    private var scopedTrackIndex: (artist: ArtistFilter, index: TrackArtistIndex)?
     @Published private(set) var server: PlexServer?
     @Published private(set) var section: LibrarySection?
+    @Published private(set) var needsSignIn = false
     @Published private(set) var signedIn = false
     @Published private(set) var resources: [PlexResource] = []
     @Published private(set) var proposedServer: PlexServer?
@@ -36,9 +38,11 @@ final class LibraryStore: ObservableObject {
     private var queueJob: Task<Void, Never>?
     private var queueRequests: [QueueRequest] = []
     private var didRestore = false
+    private let credentials: Credentials
     let defaults: UserDefaults
 
-    init(client: PlexClient? = nil, defaults: UserDefaults = .standard) {
+    init(client: PlexClient? = nil, defaults: UserDefaults = .standard, credentials: Credentials = .plex) {
+        self.credentials = credentials
         self.defaults = defaults
         player = Player(defaults: defaults)
         if let saved = defaults.string(forKey: "clientID") { clientID = saved }
@@ -47,13 +51,19 @@ final class LibraryStore: ObservableObject {
             defaults.set(clientID, forKey: "clientID")
         }
         if let client { self.client = client }
+        player.mediaURL = { [weak self] entry in
+            guard !entry.url.isFileURL, let server = self?.server else { return entry.url }
+            return (try? server.stream(for: entry.track)) ?? entry.url
+        }
+        player.diagnoseMedia = { [weak self] url in await self?.client.mediaFailure(at: url) }
+        player.requestSignIn = { [weak self] in self?.handleUnauthorized(PlexFailure.unauthorized) }
     }
 
     func restore() {
         guard !didRestore else { return }
         didRestore = true
         perform("Restoring account…") { [self] in
-            let saved = try await Credentials.plex.readForRestoration()
+            let saved = try await credentials.readForRestoration()
             try Task.checkCancellation()
             token = saved
             signedIn = saved != nil
@@ -82,6 +92,7 @@ final class LibraryStore: ObservableObject {
                 // Activity can include a server name. Keep only the phase in diagnostics.
                 let phase = activity?.components(separatedBy: " ").first ?? "connection"
                 log.error("Connection failed during \(phase, privacy: .public), code \((error as NSError).code, privacy: .public)")
+                handleUnauthorized(error)
                 connectionError = error.localizedDescription
                 showConnection = true
             }
@@ -89,22 +100,31 @@ final class LibraryStore: ObservableObject {
         }
     }
 
-    func signIn() {
+    private func handleUnauthorized(_ error: Error) {
+        guard error as? PlexFailure == .unauthorized else { return }
+        needsSignIn = true
+        connectionError = error.localizedDescription
+        showConnection = true
+    }
+
+    func signIn(openBrowser: @escaping (URL) -> Bool = { NSWorkspace.shared.open($0) }) {
+        let restoreSelection = needsSignIn
         perform("Opening Plex sign-in…") { [self] in
             let pin = try await client.createPin()
             try Task.checkCancellation()
-            guard NSWorkspace.shared.open(client.authorizationURL(pin)) else {
+            guard openBrowser(client.authorizationURL(pin)) else {
                 throw MusicError("Couldn’t open the browser. Check your default browser and try again.")
             }
             activity = "Waiting for browser sign-in…"
             let value = try await client.poll(pin)
             try Task.checkCancellation()
             activity = "Saving account credential…"
-            try Credentials.plex.save(value)
+            try credentials.save(value)
             token = value
+            needsSignIn = false
             signedIn = true
             activity = "Finding servers…"
-            try await loadResources(restoreSelection: false)
+            try await loadResources(restoreSelection: restoreSelection)
         }
     }
 
@@ -157,6 +177,7 @@ final class LibraryStore: ObservableObject {
         cancelQueueRequests()
         if server?.id != source.id || section?.id != selected.id { player.reset() }
         invalidateTrackArtistIndex()
+        needsSignIn = false
         server = source
         section = selected
         firstPage = records
@@ -168,10 +189,11 @@ final class LibraryStore: ObservableObject {
 
     func signOut() {
         cancel()
-        do { try Credentials.plex.clear() }
+        do { try credentials.clear() }
         catch { connectionError = error.localizedDescription; return }
         invalidateTrackArtistIndex()
         token = nil
+        needsSignIn = false
         signedIn = false
         server = nil
         section = nil
@@ -187,25 +209,51 @@ final class LibraryStore: ObservableObject {
         showConnection = false
     }
 
-    func invalidateTrackArtistIndex() { trackArtistIndex = nil }
+    func invalidateTrackArtistIndex() {
+        trackArtistIndex = nil
+        scopedTrackIndex = nil
+    }
+
+    private func artistIndex(for artist: ArtistFilter?) throws -> TrackArtistIndex {
+        if let artist {
+            if let cached = scopedTrackIndex, cached.artist == artist { return cached.index }
+            let index = try TrackArtistIndex()
+            scopedTrackIndex = (artist, index)
+            return index
+        }
+        if let trackArtistIndex { return trackArtistIndex }
+        let index = try TrackArtistIndex()
+        trackArtistIndex = index
+        return index
+    }
+
+    private func libraryRequest<T>(_ work: () async throws -> T) async throws -> T {
+        let originalRevision = revision
+        do { return try await work() }
+        catch {
+            try Task.checkCancellation()
+            if originalRevision == revision { handleUnauthorized(error) }
+            throw error
+        }
+    }
 
     func tracks(for album: Album) async throws -> [Track] {
         guard let server else { return [] }
-        return try await client.tracks(album: album, on: server)
+        return try await libraryRequest { try await client.tracks(album: album, on: server) }
     }
 
-    func catalog(_ kind: Catalog, query: String, offset: Int, artistID: String?, order: CatalogOrder) async throws -> CatalogPage {
+    func catalog(_ kind: Catalog, query: String, offset: Int, artist: ArtistFilter?, order: CatalogOrder) async throws -> CatalogPage {
         if let server, let section {
-            if kind == .albums, order == .standard(for: .albums), query.isEmpty, offset == 0, artistID == nil, let firstPage {
+            if kind == .albums, order == .standard(for: .albums), query.isEmpty, offset == 0, artist == nil, let firstPage {
                 self.firstPage = nil
                 return firstPage
             }
             firstPage = nil
-            if kind == .tracks, order.field == .artist, trackArtistIndex == nil {
-                trackArtistIndex = try TrackArtistIndex()
+            let index = kind == .tracks && order.field == .artist ? try artistIndex(for: artist) : nil
+            return try await libraryRequest {
+                try await client.page(kind, section: section, on: server, query: query, offset: offset,
+                                      artist: artist, order: order, trackArtistIndex: index)
             }
-            return try await client.page(kind, section: section, on: server, query: query, offset: offset,
-                                         artistID: artistID, order: order, trackArtistIndex: artistID == nil ? trackArtistIndex : nil)
         }
         return CatalogPage(rows: [], total: 0, next: nil)
     }
@@ -252,6 +300,7 @@ final class LibraryStore: ObservableObject {
                     else { player.replace(entries, startingAt: index) }
                 } catch {
                     guard !Task.isCancelled else { return }
+                    handleUnauthorized(error)
                     player.error = error.localizedDescription
                 }
                 queueRequests.removeFirst()
@@ -292,7 +341,7 @@ final class LibraryStore: ObservableObject {
             var offset = 0
             var seen = Set<String>()
             while true {
-                let page = try await client.page(.albums, section: section, on: server, query: "", offset: offset, artistID: id)
+                let page = try await client.page(.albums, section: section, on: server, query: "", offset: offset, artist: .id(id))
                 let count = seen.count
                 for case .album(let album) in page.rows where seen.insert(album.id).inserted {
                     let tracks = try await client.tracks(album: album, on: server)

@@ -22,6 +22,9 @@ private final class FixtureProtocol: URLProtocol {
         case "/api/v2/pins/8":
             XCTAssertEqual(value("code"), "sample-pin")
             json = ["id": 8, "code": "sample-pin", "authToken": "fixture-account"]
+        case "/api/v2/resources" where request.value(forHTTPHeaderField: "X-Plex-Token") == "expired-account":
+            status = 401
+            json = [:]
         case "/api/v2/resources":
             XCTAssertEqual(request.value(forHTTPHeaderField: "X-Plex-Token"), "fixture-account")
             json = [
@@ -45,6 +48,21 @@ private final class FixtureProtocol: URLProtocol {
                 ]]]
             }
         case "/library/sections/4/all":
+            if let name = value("artist.title=") {
+                XCTAssertEqual(name, "Guest")
+                XCTAssertEqual(value("type"), "9")
+                json = ["MediaContainer": ["totalSize": 1, "Metadata": [
+                    ["ratingKey": "2", "title": "Guest album", "parentTitle": "Guest"]
+                ]]]
+                break
+            }
+            if value("type") == "10", value("artist.id") == "44" {
+                json = ["MediaContainer": ["totalSize": 1, "Metadata": [
+                    ["ratingKey": "11", "title": "Band track", "parentTitle": "Record 1", "parentRatingKey": "1",
+                     "grandparentTitle": "The Band", "grandparentRatingKey": 44, "originalTitle": "Guest"]
+                ]]]
+                break
+            }
             if value("artist.title") == "column fixture" {
                 let metadata: [String: Any] = ["ratingKey": "51", "title": value("sort") ?? "",
                     "index": 7, "parentIndex": 2, "duration": 123000, "parentYear": 1996,
@@ -123,12 +141,12 @@ private final class FixtureProtocol: URLProtocol {
             XCTAssertEqual(value("X-Plex-Container-Size"), String(CatalogPage.capacity))
             let offset = Int(value("X-Plex-Container-Start") ?? "")!
             var row: [String: Any] = ["ratingKey": "\(offset + 1)", "title": "Record \(offset + 1)",
-                                      "parentTitle": "The Band", "year": 2025]
+                                      "parentTitle": "The Band", "parentRatingKey": 44, "year": 2025]
             if offset == 0 {
                 row["ratingKey"] = 1
             }
             if offset == 1 {
-                let xml = #"<MediaContainer totalSize="2" size="1"><Directory type="album" ratingKey="2" title="Second" parentTitle="The Band" studio="Second label" year="1999"><Genre tag="Techno"/><Style tag="Dub Techno"/><Collection tag="Scene: Coast"/></Directory></MediaContainer>"#
+                let xml = #"<MediaContainer totalSize="2" size="1"><Directory type="album" ratingKey="2" title="Second" parentRatingKey="44" parentTitle="The Band" studio="Second label" year="1999"><Genre tag="Techno"/><Style tag="Dub Techno"/><Collection tag="Scene: Coast"/></Directory></MediaContainer>"#
                 rawBody = Data((request.value(forHTTPHeaderField: "Accept") == "application/xml" ? xml : "{").utf8)
             }
             json = ["MediaContainer": ["totalSize": 2, "offset": offset, "Metadata": [row]]]
@@ -168,6 +186,17 @@ private final class FixtureProtocol: URLProtocol {
             XCTAssertEqual(request.value(forHTTPHeaderField: "Accept"), "application/json", "Use the XML already delivered")
             let tracks = (1...125).map { #"<Track ratingKey="\#($0)" title="Track \#($0)" index="\#($0)"/>"# }.joined()
             rawBody = Data(("<MediaContainer size=\"125\">" + tracks + "</MediaContainer>").utf8)
+            json = [:]
+        case "/media/missing", "/media/forbidden", "/media/expired", "/media/offline", "/media/busy":
+            XCTAssertEqual(request.httpMethod, "HEAD")
+            XCTAssertNil(value("X-Plex-Token"))
+            XCTAssertEqual(value("download"), "0")
+            XCTAssertEqual(request.value(forHTTPHeaderField: "X-Plex-Token"), "fixture-server")
+            if url.path == "/media/offline" {
+                client?.urlProtocol(self, didFailWithError: URLError(.notConnectedToInternet))
+                return
+            }
+            status = ["/media/missing": 404, "/media/forbidden": 403, "/media/expired": 401, "/media/busy": 503][url.path]!
             json = [:]
         case "/library/metadata/2/children":
             json = ["MediaContainer": ["Metadata": [
@@ -234,6 +263,7 @@ final class PlexClientTests: XCTestCase {
             return XCTFail("Expected album metadata")
         }
         XCTAssertEqual([first.id, second.id], ["1", "2"])
+        XCTAssertEqual([first.artistID, second.artistID], ["44", "44"])
         XCTAssertEqual(second.year, 1999)
         let tracks = try await api.tracks(album: first, on: server)
         XCTAssertEqual(tracks.map(\.title), ["Prelude", "Coda"])
@@ -262,7 +292,7 @@ final class PlexClientTests: XCTestCase {
         let api = client
         for (catalog, artistID, expected) in cases {
             let page = try await api.page(catalog, section: section, on: server, query: "column fixture", offset: 0,
-                                          artistID: artistID)
+                                          artist: artistID.map(ArtistFilter.id))
             XCTAssertEqual(page.rows.first?.title, expected)
         }
     }
@@ -374,12 +404,9 @@ final class PlexClientTests: XCTestCase {
             }
         }
         func menu(at row: Int) throws -> NSMenu {
-            let rect = table.rect(ofRow: row)
-            let point = table.convert(NSPoint(x: 20, y: rect.midY), to: nil)
-            let event = try XCTUnwrap(NSEvent.mouseEvent(with: .rightMouseDown, location: point, modifierFlags: [],
-                timestamp: 0, windowNumber: window.windowNumber, context: nil, eventNumber: 1, clickCount: 1, pressure: 1))
-            let menu = try XCTUnwrap(table.menu(for: event))
-            XCTAssertEqual(menu.items.map(\.title), ["Append to Queue", "Replace Queue"])
+            let menu = try contextMenu(for: table, row: row)
+            XCTAssertEqual(menu.items.prefix(2).map(\.title), ["Append to Queue", "Replace Queue"])
+            XCTAssertTrue(menu.items[2].isSeparatorItem)
             return menu
         }
 
@@ -416,6 +443,75 @@ final class PlexClientTests: XCTestCase {
         track.performActionForItem(at: 1)
         guard await waitFor("replacement track playback", { store.player.current?.track.id == "22" }) else { return }
         XCTAssertEqual(store.player.queue.map(\.track.id), ["22"])
+
+        tabs.selectedSegment = Catalog.allCases.count
+        _ = tabs.sendAction(tabs.action, to: tabs.target)
+        try await waitUntil { table.numberOfRows == 1 }
+        let queuedTrack = try contextMenu(for: table, row: 0)
+        XCTAssertEqual(queuedTrack.items.map(\.title), ["Go to Second", "Go to The Band"])
+        queuedTrack.performActionForItem(at: 0)
+        try await waitUntil { table.tableColumns.first?.title == "No." && table.numberOfRows == 2 }
+        controller.back()
+        try await waitUntil { table.numberOfRows == 1 && table.allowsMultipleSelection }
+        XCTAssertEqual(store.player.queue.map(\.track.id), ["22"])
+    }
+
+    @MainActor
+    private func contextMenu(for table: NSTableView, row: Int) throws -> NSMenu {
+        let point = table.convert(NSPoint(x: 20, y: table.rect(ofRow: row).midY), to: nil)
+        let window = try XCTUnwrap(table.window)
+        let event = try XCTUnwrap(NSEvent.mouseEvent(with: .rightMouseDown, location: point, modifierFlags: [],
+            timestamp: 0, windowNumber: window.windowNumber, context: nil, eventNumber: 1, clickCount: 1, pressure: 1))
+        let menu = try XCTUnwrap(table.menu(for: event))
+        for item in menu.items where !item.isSeparatorItem { XCTAssertNotNil(item.image, item.title) }
+        return menu
+    }
+
+    @MainActor
+    func testContextMenuNavigationUsesTheClickedRowsParents() async throws {
+        let suite = "CueNavigationMenus-" + UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let store = try await connectedStore(defaults: defaults)
+        let controller = LibraryWindow(store: store)
+        controller.showWindow(nil)
+        defer { controller.close() }
+        let root = try XCTUnwrap(controller.window?.contentView)
+        let table = try XCTUnwrap(root.descendants(of: NSTableView.self).first)
+        let tabs = try XCTUnwrap(root.descendants(of: NSSegmentedControl.self).first)
+        func firstTitle(_ column: String) -> String? {
+            let index = table.column(withIdentifier: .init(column))
+            guard index >= 0, table.numberOfRows > 0 else { return nil }
+            return (table.view(atColumn: index, row: 0, makeIfNecessary: true) as? NSTableCellView)?.textField?.stringValue
+        }
+        func follow(_ title: String) throws {
+            let menu = try contextMenu(for: table, row: 0)
+            let item = try XCTUnwrap(menu.item(withTitle: title))
+            menu.performActionForItem(at: menu.index(of: item))
+        }
+
+        try await waitUntil { firstTitle("Album") == "Record 1" }
+        try follow("See all albums by The Band")
+        try await waitUntil { firstTitle("Album") == "Second" }
+        controller.back()
+        try await waitUntil { firstTitle("Album") == "Record 1" }
+        tabs.selectedSegment = Catalog.artists.rawValue
+        _ = tabs.sendAction(tabs.action, to: tabs.target)
+        try await waitUntil { firstTitle("Artist") == "The Band" }
+        try follow("See all tracks by The Band")
+        try await waitUntil { firstTitle("Track") == "Band track" }
+        table.sortDescriptors = [NSSortDescriptor(key: "Artist", ascending: true)]
+        try await waitUntil { firstTitle("Track") == "Band track" }
+        let trackMenu = try contextMenu(for: table, row: 0)
+        XCTAssertEqual(trackMenu.items.suffix(2).map(\.title), ["Go to Record 1", "Go to Guest"])
+        try follow("Go to Record 1")
+        try await waitUntil { firstTitle("Track") == "Prelude" }
+        controller.back()
+        try await waitUntil { firstTitle("Track") == "Band track" }
+        try follow("Go to Guest")
+        try await waitUntil { firstTitle("Album") == "Guest album" }
+        XCTAssertNil(store.player.current)
+        XCTAssertTrue(store.player.queue.isEmpty)
     }
 
     @MainActor
@@ -591,6 +687,43 @@ final class PlexClientTests: XCTestCase {
     }
 
     @MainActor
+    func testTitlebarAppearanceTracksWindowFocusNotifications() throws {
+        let controller = LibraryWindow(store: LibraryStore())
+        let window = try XCTUnwrap(controller.window)
+        window.setContentSize(window.contentMinSize)
+        controller.showWindow(nil)
+        defer { controller.close() }
+        let content = try XCTUnwrap(window.contentView)
+        let strip = try XCTUnwrap(content.subviews.first { !($0 is NSStackView) })
+        func capture(_ name: String) throws -> CGFloat {
+            window.layoutIfNeeded()
+            window.displayIfNeeded()
+            let rep = try XCTUnwrap(strip.bitmapImageRepForCachingDisplay(in: strip.bounds))
+            strip.cacheDisplay(in: strip.bounds, to: rep)
+            let x = rep.pixelsWide / 2
+            func luminance(at y: Int) throws -> CGFloat {
+                let color = try XCTUnwrap(rep.colorAt(x: x, y: y)?.usingColorSpace(.sRGB))
+                return 0.2126 * color.redComponent + 0.7152 * color.greenComponent + 0.0722 * color.blueComponent
+            }
+            let attachment = XCTAttachment(data: try XCTUnwrap(rep.representation(using: .png, properties: [:])), uniformTypeIdentifier: "public.png")
+            attachment.name = name
+            attachment.lifetime = .keepAlways
+            add(attachment)
+            return try abs(luminance(at: 2) - luminance(at: rep.pixelsHigh - 3))
+        }
+        for appearance in [NSAppearance.Name.aqua, .darkAqua] {
+            window.appearance = NSAppearance(named: appearance)
+            NotificationCenter.default.post(name: NSWindow.didBecomeKeyNotification, object: window)
+            let focused = try capture("Cue-focused-" + appearance.rawValue)
+            if !NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast {
+                XCTAssertGreaterThan(focused, 0.03)
+            }
+            NotificationCenter.default.post(name: NSWindow.didResignKeyNotification, object: window)
+            XCTAssertLessThan(try capture("Cue-inactive-" + appearance.rawValue), 0.005)
+        }
+    }
+
+    @MainActor
     func testToolbarOpensAndDismissesPlexConnectionAtMinimumWidth() async throws {
         let controller = LibraryWindow(store: LibraryStore())
         let window = try XCTUnwrap(controller.window)
@@ -608,7 +741,10 @@ final class PlexClientTests: XCTestCase {
         XCTAssertTrue(NSApp.sendAction(try XCTUnwrap(item.action), to: item.target, from: item))
         try await waitUntil { window.attachedSheet != nil }
         let done = try XCTUnwrap(window.attachedSheet?.contentView?.descendants(of: NSButton.self).first { $0.title == "Done" })
-        done.performClick(nil)
+        let sheet = try XCTUnwrap(window.attachedSheet)
+        XCTAssertTrue(sheet.defaultButtonCell === done.cell)
+        XCTAssertEqual(sheet.effectiveAppearance.name, window.effectiveAppearance.name)
+        sheet.contentViewController?.cancelOperation(nil)
         try await waitUntil { window.attachedSheet == nil }
     }
 
@@ -739,12 +875,59 @@ final class PlexClientTests: XCTestCase {
         }
     }
 
+    func testMediaFailureChecksOnlyHeadersAndDistinguishesRecoveryActions() async throws {
+        let api = client
+        for (path, expected) in [("missing", PlexFailure.missing), ("forbidden", .forbidden),
+                                 ("expired", .unauthorized), ("offline", .disconnected), ("busy", .unavailable)] {
+            let url = try server.url(for: "/media/\(path)?download=0&X-Plex-Token=fixture-server")
+            let failure = await api.mediaFailure(at: url)
+            XCTAssertEqual(failure, expected)
+        }
+    }
+
+    @MainActor
+    func testExpiredAccountCanSignInAgainAndRestoreExistingQueue() async throws {
+        let suite = "CueReauth-" + UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        let credentials = Credentials(service: suite)
+        defer { try? credentials.clear(); defaults.removePersistentDomain(forName: suite) }
+        let store = LibraryStore(client: client, defaults: defaults, credentials: credentials)
+        store.choose(PlexResource(clientIdentifier: "server", name: server.name, provides: "server", accessToken: server.token,
+                                  connections: [.init(uri: server.base, local: false, relay: nil)]))
+        try await waitUntil { !store.sections.isEmpty }
+        store.choose(try XCTUnwrap(store.sections.first))
+        try await waitUntil { store.section != nil }
+        let file = try XCTUnwrap(Bundle(for: Self.self).url(forResource: "playback-fixture", withExtension: "m4a"))
+        let track = Track(id: "11", title: "Prelude", artist: "Guest", disc: 1, number: 1, duration: 24, part: "/media/11")
+        let album = Album(id: "1", title: "Album", artist: "Guest", year: nil)
+        let entry = QueueEntry(track: track, album: album, url: file)
+        defer { store.clearQueue() }
+        store.player.volume = 0
+        store.player.append([entry])
+        store.player.pause()
+
+        try credentials.save("expired-account")
+        store.restore()
+        try await waitUntil { store.needsSignIn && store.activity == nil }
+        XCTAssertTrue(store.showConnection)
+        XCTAssertEqual(store.player.current?.id, entry.id)
+        store.signIn { $0.host == "app.plex.tv" }
+        try await waitUntil { store.activity == nil && !store.showConnection }
+        XCTAssertFalse(store.needsSignIn)
+        XCTAssertEqual(store.section?.id, "4")
+        XCTAssertEqual(store.player.queue, [entry])
+        XCTAssertFalse(store.player.playing)
+        XCTAssertEqual(try credentials.read(), "fixture-account")
+        let stale = QueueEntry(track: track, album: album, url: try server.url(for: "/media/11?X-Plex-Token=stale"))
+        XCTAssertEqual(store.player.mediaURL?(stale), try store.server?.stream(for: track))
+    }
+
     func testAccessDeniedIsActionable() async {
         do {
             _ = try await client.page(.albums, section: LibrarySection(key: "5", title: "Other", type: "artist"), on: server, query: "", offset: 0)
             XCTFail("Expected an access error")
         } catch {
-            XCTAssertTrue(error.localizedDescription.contains("Reconnect"))
+            XCTAssertEqual(error as? PlexFailure, .unauthorized)
         }
     }
 }

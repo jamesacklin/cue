@@ -5,6 +5,7 @@ import Combine
 final class ConnectionView: NSViewController {
     private let store: LibraryStore
     private let stack = NSStackView()
+    private weak var doneButton: NSButton?
     private var observation: AnyCancellable?
 
     init(store: LibraryStore) {
@@ -25,6 +26,11 @@ final class ConnectionView: NSViewController {
             .sink { [weak self] in self?.render() }
     }
 
+    override func viewDidAppear() {
+        super.viewDidAppear()
+        view.window?.defaultButtonCell = doneButton?.cell as? NSButtonCell
+    }
+
     private func render() {
         stack.arrangedSubviews.forEach { $0.removeFromSuperview() }
         func label(_ string: String) {
@@ -36,23 +42,30 @@ final class ConnectionView: NSViewController {
         actions.spacing = 8
         func button(_ title: String, _ action: Selector) {
             let button = NSButton(title: title, target: self, action: action)
-            button.controlSize = .small
+            button.bezelStyle = .rounded
+            if action == #selector(done) {
+                doneButton = button
+                button.keyEquivalent = "\r"
+            }
             actions.addArrangedSubview(button)
         }
         if let message = store.connectionError { label(message) }
         if let activity = store.activity {
             label(activity)
             button("Cancel", #selector(cancelJob))
+        } else if store.needsSignIn {
+            button("Sign In Again…", #selector(signIn))
+            if store.signedIn { button("Sign Out", #selector(signOut)) }
         } else if store.signedIn {
             label("Plex server")
-            let servers = popup(store.resources.map(\.name), prompt: "Choose server…", action: #selector(server(_:)))
+            let servers = popup("Plex server", store.resources.map(\.name), prompt: "Choose server…", action: #selector(server(_:)))
             if let selected = store.resources.firstIndex(where: { $0.id == store.proposedServer?.id }) {
                 servers.selectItem(at: selected + 1)
             }
             if store.resources.isEmpty { label("No servers found.") }
             if store.proposedServer != nil {
                 label("Music library")
-                _ = popup(store.sections.map(\.title), prompt: "Choose library…", action: #selector(section(_:)))
+                _ = popup("Music library", store.sections.map(\.title), prompt: "Choose library…", action: #selector(section(_:)))
                 if store.sections.isEmpty { label("This server has no music libraries.") }
             }
             button("Refresh Servers", #selector(discover))
@@ -67,12 +80,14 @@ final class ConnectionView: NSViewController {
         actions.widthAnchor.constraint(equalTo: stack.widthAnchor, constant: -40).isActive = true
         preferredContentSize = stack.fittingSize
         view.window?.setContentSize(preferredContentSize)
+        view.window?.defaultButtonCell = doneButton?.cell as? NSButtonCell
     }
 
-    private func popup(_ titles: [String], prompt: String, action: Selector) -> NSPopUpButton {
+    private func popup(_ label: String, _ titles: [String], prompt: String, action: Selector) -> NSPopUpButton {
         let popup = NSPopUpButton()
         // Add items individually so identically named libraries remain selectable.
         for title in [prompt] + titles { popup.menu?.addItem(NSMenuItem(title: title, action: nil, keyEquivalent: "")) }
+        popup.setAccessibilityLabel(label)
         popup.selectItem(at: 0)
         popup.target = self
         popup.action = action
@@ -92,5 +107,7 @@ final class ConnectionView: NSViewController {
     @objc private func discover() { store.discover() }
     @objc private func signOut() { store.signOut() }
     @objc private func cancelJob() { store.cancel() }
+    override func cancelOperation(_ sender: Any?) { done() }
+
     @objc private func done() { store.cancel(); store.showConnection = false }
 }

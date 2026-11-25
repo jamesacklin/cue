@@ -32,6 +32,13 @@ final class Player: ObservableObject {
     private var itemDuration: NSKeyValueObservation?
     private var itemStatus: NSKeyValueObservation?
     private var playStatus: NSKeyValueObservation?
+    var mediaURL: ((QueueEntry) -> URL)?
+    var diagnoseMedia: ((URL) async -> PlexFailure?)?
+    var requestSignIn: (() -> Void)?
+    private var diagnosis: Task<Void, Never>?
+    private var stallTimeout: Task<Void, Never>?
+    private var retryPosition: Double?
+    private var wantsPlayback = false
     private var finished = false
     private var history: [QueueEntry] = []
     private var systemTransport: SystemTransport?
@@ -86,7 +93,7 @@ final class Player: ObservableObject {
     }
 
     private func syncProgress() {
-        guard progressVisible, let item = engine?.currentItem else { return }
+        guard progressVisible, retryPosition == nil, let item = engine?.currentItem else { return }
         // Read the current item even if a callback was queued before a seek or track change.
         let seconds = item.currentTime().seconds
         if seconds.isFinite, seconds >= 0, seconds != elapsed { elapsed = seconds }
@@ -160,18 +167,24 @@ final class Player: ObservableObject {
         start(entry)
     }
 
-    private func start(_ entry: QueueEntry) {
+    private func start(_ entry: QueueEntry, at position: Double = 0, play: Bool = true) {
+        diagnosis?.cancel()
+        stallTimeout?.cancel()
+        retryPosition = nil
+        wantsPlayback = play
         current = entry
-        elapsed = 0
+        elapsed = position
         finished = false
         error = nil
         length = entry.track.duration
-        let item = AVPlayerItem(url: entry.url)
+        let url = mediaURL?(entry) ?? entry.url
+        let item = AVPlayerItem(url: url)
         item.preferredForwardBufferDuration = 5
         airPlayDiagnostics.observeItem(item)
         end = NotificationCenter.default.publisher(for: .AVPlayerItemDidPlayToEndTime, object: item)
             .receive(on: RunLoop.main).sink { [weak self, weak item] _ in
                 guard let self, let item, self.engine?.currentItem === item else { return }
+                guard self.retryPosition == nil else { return }
                 self.finishQueuedEntry(entry.id)
                 if self.hasNext { self.next() }
                 else { self.finished = true; self.audio.pause() }
@@ -181,7 +194,7 @@ final class Player: ObservableObject {
                 guard let self, let item, self.engine?.currentItem === item else { return }
                 let error = notification.userInfo?[AVPlayerItemFailedToPlayToEndTimeErrorKey] as? Error ?? item.error
                 self.airPlayDiagnostics.recordFailure("Playback failed before the end of the item", error: error)
-                self.playbackFailed()
+                self.playbackFailed(item, url: url, cause: error)
             }
         stall = NotificationCenter.default.publisher(for: AVPlayerItem.playbackStalledNotification, object: item)
             .receive(on: RunLoop.main).sink { [weak self, weak item] _ in
@@ -189,6 +202,7 @@ final class Player: ObservableObject {
                 self.log.notice("Playback stalled while waiting for media data")
                 self.airPlayDiagnostics.record("Playback stalled (buffer empty=\(item.isPlaybackBufferEmpty)" +
                                                ", likely to keep up=\(item.isPlaybackLikelyToKeepUp))")
+                self.monitorStall(item, url: url)
             }
         itemDuration = item.observe(\.duration, options: [.initial, .new]) { [weak self] item, _ in
             Task { @MainActor in
@@ -206,15 +220,18 @@ final class Player: ObservableObject {
                     self.airPlayDiagnostics.record("Playback item ready")
                 } else if item.status == .failed {
                     self.airPlayDiagnostics.recordFailure("Playback item failed", error: item.error)
-                    self.playbackFailed()
+                    self.playbackFailed(item, url: url, cause: item.error)
                 }
             }
         }
         equalizer.attach(to: item)
         audio.replaceCurrentItem(with: item)
         if systemTransport == nil { systemTransport = SystemTransport(player: self) }
-        audio.play()
-        updateSystemTransport(position: 0)
+        if position > 0 {
+            audio.seek(to: CMTime(seconds: position, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero)
+        }
+        if play { audio.play() } else { audio.pause() }
+        updateSystemTransport(position: position)
     }
 
     private func updateSystemTransport(position: Double? = nil) {
@@ -224,9 +241,52 @@ final class Player: ObservableObject {
         systemTransport.update(position: time.isFinite ? time : elapsed, rate: rate)
     }
 
-    private func playbackFailed() {
+    private func monitorStall(_ item: AVPlayerItem, url: URL) {
+        guard wantsPlayback, retryPosition == nil else { return }
+        stallTimeout?.cancel()
+        let position = item.currentTime()
+        stallTimeout = Task { [weak self, weak item] in
+            try? await Task.sleep(for: .seconds(15))
+            guard !Task.isCancelled, let self, let item, engine?.currentItem === item,
+                  wantsPlayback, !finished, item.currentTime() == position,
+                  engine?.timeControlStatus != .playing else { return }
+            playbackFailed(item, url: url, cause: URLError(.timedOut))
+        }
+    }
+
+    private func playbackFailed(_ item: AVPlayerItem, url: URL, cause: Error?) {
+        guard retryPosition == nil, !finished, let entry = current else { return }
+        let time = item.currentTime().seconds
+        let position = time.isFinite && time > 0 ? time : elapsed
+        retryPosition = position
+        elapsed = position
         audio.pause()
-        error = "Couldn’t play this track. Check the server connection and that macOS supports the audio format."
+        if PlexFailure.isConnectionLoss(cause as NSError?) {
+            error = "Connection lost. Press Play to retry from here."
+            return
+        }
+
+        error = "Playback interrupted. Press Play to retry."
+        diagnosis = Task { [weak self, weak item, diagnoseMedia] in
+            let failure = await diagnoseMedia?(url)
+            guard !Task.isCancelled, let self, let item, engine?.currentItem === item,
+                  (mediaURL?(entry) ?? entry.url) == url else { return }
+            switch failure {
+            case .missing:
+                finishQueuedEntry(entry.id)
+                if let next = queue.first { start(next, play: wantsPlayback) }
+                else {
+                    reset()
+                    error = "“\(entry.track.title)” is no longer available on Plex."
+                }
+            case .unauthorized:
+                error = "Press Play to resume after signing in to Plex."
+                requestSignIn?()
+            case .forbidden, .unavailable: error = failure?.localizedDescription
+            case .disconnected: error = "Connection lost. Press Play to retry from here."
+            case nil: error = "Couldn’t play this track. Check its file or press Play to retry."
+            }
+        }
     }
 
     func toggle() {
@@ -234,20 +294,30 @@ final class Player: ObservableObject {
         if engine.timeControlStatus == .paused { resume() } else { pause() }
     }
 
-    func pause() { engine?.pause() }
+    func pause() {
+        wantsPlayback = false
+        stallTimeout?.cancel()
+        engine?.pause()
+    }
 
     func resume() {
         guard let current else { return }
         if finished {
             queue.insert(current, at: queue.startIndex)
             start(current)
-        } else if audio.currentItem?.status == .failed || error != nil { start(current) }
-        else { audio.play() }
+        } else if let retryPosition {
+            start(current, at: retryPosition)
+        } else if audio.currentItem?.status == .failed {
+            start(current, at: elapsed)
+        } else {
+            wantsPlayback = true
+            audio.play()
+        }
     }
 
     func previous() {
-        guard let current else { return }
-        let position = engine?.currentTime().seconds ?? elapsed
+        guard current != nil else { return }
+        let position = retryPosition ?? engine?.currentTime().seconds ?? elapsed
         if position > 3 || history.isEmpty {
             seek(to: 0)
         } else if let previous = history.popLast() {
@@ -265,11 +335,18 @@ final class Player: ObservableObject {
             finished = false
         }
         elapsed = min(length, max(0, time))
-        audio.seek(to: CMTime(seconds: elapsed, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero)
+        if retryPosition != nil { retryPosition = elapsed }
+        else { audio.seek(to: CMTime(seconds: elapsed, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero) }
         updateSystemTransport(position: elapsed)
     }
 
     func reset() {
+        diagnosis?.cancel()
+        diagnosis = nil
+        stallTimeout?.cancel()
+        stallTimeout = nil
+        retryPosition = nil
+        wantsPlayback = false
         equalizer.attach(to: nil)
         systemTransport = nil
         end = nil

@@ -87,6 +87,7 @@ private struct MusicMetadata: Decodable {
     let ratingKey: PlexKey
     let title: String?
     let parentRatingKey: PlexKey?
+    let grandparentRatingKey: PlexKey?
     let parentTitle: String?
     let grandparentTitle: String?
     let originalTitle: String?
@@ -109,6 +110,7 @@ private struct MusicMetadata: Decodable {
         ratingKey = PlexKey(id)
         title = field("title")
         parentRatingKey = field("parentRatingKey").map(PlexKey.init)
+        grandparentRatingKey = field("grandparentRatingKey").map(PlexKey.init)
         parentTitle = field("parentTitle")
         grandparentTitle = field("grandparentTitle")
         originalTitle = field("originalTitle")
@@ -130,10 +132,11 @@ private struct MusicMetadata: Decodable {
         case .artists: return .artist(id: ratingKey.value, name: title ?? "Unknown Artist", addedAt: addedAt)
         case .albums:
             return .album(Album(id: ratingKey.value, title: title ?? "Untitled album",
-                                artist: parentTitle ?? "Unknown Artist", year: year, addedAt: addedAt))
+                                artist: parentTitle ?? "Unknown Artist", year: year, addedAt: addedAt, artistID: parentRatingKey?.value))
         case .tracks:
             let album = parent ?? Album(id: parentRatingKey?.value ?? "", title: parentTitle ?? "Unknown album",
-                                        artist: grandparentTitle ?? "Unknown Artist", year: parentYear ?? year)
+                                        artist: grandparentTitle ?? "Unknown Artist", year: parentYear ?? year,
+                                        artistID: grandparentRatingKey?.value)
             let credit = originalTitle?.trimmingCharacters(in: .whitespacesAndNewlines)
             let track = Track(id: ratingKey.value, title: title ?? "Untitled track",
                               artist: credit.flatMap { $0.isEmpty ? nil : $0 } ?? album.artist, disc: parentIndex ?? 1,
@@ -162,6 +165,46 @@ private final class SameOriginRedirects: NSObject, URLSessionTaskDelegate {
     }
 }
 
+enum PlexFailure: LocalizedError, Equatable {
+    case unauthorized, forbidden, missing, disconnected, unavailable
+
+    init?(status: Int) {
+        switch status {
+        case 401: self = .unauthorized
+        case 403: self = .forbidden
+        case 404, 410: self = .missing
+        case 429, 500...599: self = .unavailable
+        default: return nil
+        }
+    }
+
+    static func isConnectionLoss(_ error: NSError?) -> Bool {
+        var cause = error
+        for _ in 0..<8 {
+            guard let current = cause else { break }
+            if current.domain == NSURLErrorDomain {
+                switch URLError.Code(rawValue: current.code) {
+                case .notConnectedToInternet, .networkConnectionLost, .timedOut, .cannotConnectToHost,
+                     .cannotFindHost, .dnsLookupFailed: return true
+                default: break
+                }
+            }
+            cause = current.userInfo[NSUnderlyingErrorKey] as? NSError
+        }
+        return false
+    }
+
+    var errorDescription: String? {
+        switch self {
+        case .unauthorized: "Plex didn’t accept your sign-in. Sign in again to reconnect."
+        case .forbidden: "Your Plex account doesn’t have access to this item. Check library sharing with the server owner."
+        case .missing: "Plex can no longer find this item. Refresh the library."
+        case .disconnected: "Couldn’t reach Plex. Check your connection and try again."
+        case .unavailable: "Plex is temporarily unavailable. Try again later."
+        }
+    }
+}
+
 struct PlexClient {
     let identifier: String
     let session: URLSession
@@ -183,16 +226,36 @@ struct PlexClient {
     }
 
     private func responseData(_ request: URLRequest) async throws -> Data {
-        let (data, response) = try await session.data(for: request)
+        let data: Data
+        let response: URLResponse
+        do { (data, response) = try await session.data(for: request) }
+        catch where PlexFailure.isConnectionLoss(error as NSError) { throw PlexFailure.disconnected }
         guard let http = response as? HTTPURLResponse else { throw MusicError("Plex did not send a response.") }
         if http.statusCode >= 400 { connectionLog.error("Plex request returned HTTP \(http.statusCode, privacy: .public)") }
-        switch http.statusCode {
-        case 200..<300: break
-        case 401, 403: throw MusicError("Plex denied access. Reconnect to Plex to renew your sign-in.")
-        case 404: throw MusicError("Plex could not find this item. Refresh the library and try again.")
-        default: throw MusicError("Plex returned HTTP \(http.statusCode). Try again when the server is available.")
+        if let failure = PlexFailure(status: http.statusCode) { throw failure }
+        guard (200..<300).contains(http.statusCode) else {
+            throw MusicError("Plex returned HTTP \(http.statusCode). Try again when the server is available.")
         }
         return data
+    }
+
+    // AVFoundation can report an opaque playback error for an HTTP failure.
+    // Check the failed media URL once without fetching the audio a second time.
+    func mediaFailure(at url: URL) async -> PlexFailure? {
+        guard url.scheme == "https", var address = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return nil }
+        let items = address.queryItems ?? []
+        let token = items.first { $0.name == "X-Plex-Token" }?.value
+        let remaining = items.filter { $0.name != "X-Plex-Token" }
+        address.queryItems = remaining.isEmpty ? nil : remaining
+        guard let media = address.url else { return nil }
+        var probe = request(media, token: token)
+        probe.setValue("*/*", forHTTPHeaderField: "Accept")
+        probe.httpMethod = "HEAD"
+        probe.timeoutInterval = 4
+        do { _ = try await responseData(probe) }
+        catch let failure as PlexFailure { return failure }
+        catch {}
+        return nil
     }
 
     private func decode<T: Decodable>(_ request: URLRequest) async throws -> T {
@@ -252,6 +315,7 @@ struct PlexClient {
 
     func connect(_ resource: PlexResource) async throws -> (PlexServer, [LibrarySection]) {
         guard let token = resource.accessToken else { throw MusicError("This server did not grant access.") }
+        var accessFailure: PlexFailure?
         for address in resource.endpoints {
             try Task.checkCancellation()
             let server = PlexServer(id: resource.id, name: resource.name, base: address, token: token)
@@ -262,10 +326,14 @@ struct PlexClient {
                 return (server, (response.MediaContainer.Directory ?? []).filter { $0.type == "artist" })
             } catch {
                 try Task.checkCancellation()
+                if let failure = error as? PlexFailure, failure == .unauthorized || failure == .forbidden {
+                    accessFailure = failure
+                }
                 let code = (error as NSError).code
                 connectionLog.error("Music section request failed with error code \(code, privacy: .public)")
             }
         }
+        if let accessFailure { throw accessFailure }
         throw MusicError("Couldn’t reach \(resource.name). Check that it’s online and accepts secure connections.")
     }
 
@@ -298,21 +366,25 @@ struct PlexClient {
     }
 
     func page(_ kind: Catalog, section: LibrarySection, on server: PlexServer, query: String, offset: Int,
-              artistID: String? = nil, order: CatalogOrder? = nil,
+              artist: ArtistFilter? = nil, order: CatalogOrder? = nil,
               trackArtistIndex: TrackArtistIndex? = nil) async throws -> CatalogPage {
+        var filters = [URLQueryItem(name: "type", value: kind.plexType)]
+        switch artist {
+        case .id(let id): filters.append(URLQueryItem(name: "artist.id", value: id))
+        case .name(let name): filters.append(URLQueryItem(name: "artist.title=", value: name))
+        case nil: break
+        }
         if kind == .tracks, let order, order.field == .artist {
             let index = try trackArtistIndex ?? TrackArtistIndex()
+            filters.append(URLQueryItem(name: "sort", value: "titleSort"))
             return try await index.page(query: query, ascending: order.ascending, offset: offset) { start in
-                var filters = [URLQueryItem(name: "type", value: kind.plexType), URLQueryItem(name: "sort", value: "titleSort")]
-                if let artistID { filters.append(URLQueryItem(name: "artist.id", value: artistID)) }
-                return try await readPage(.tracks, path: "/library/sections/\(section.key)/all", on: server,
+                try await readPage(.tracks, path: "/library/sections/\(section.key)/all", on: server,
                                           filters: filters, offset: start, size: 500)
             }
         }
-        let withinArtist = artistID != nil
+        let withinArtist = artist != nil
         let sort = (order ?? .standard(for: kind, withinArtist: withinArtist)).plexSort(for: kind, withinArtist: withinArtist)
-        var filters = [URLQueryItem(name: "type", value: kind.plexType), URLQueryItem(name: "sort", value: sort)]
-        if let artistID { filters.append(URLQueryItem(name: "artist.id", value: artistID)) }
+        filters.append(URLQueryItem(name: "sort", value: sort))
         if !query.isEmpty {
             // PMS combines fields with AND unless they are grouped explicitly with OR.
             let fields: [String]
@@ -338,8 +410,8 @@ struct PlexClient {
         let fields: String
         switch kind {
         case .artists: fields = "ratingKey,title,addedAt"
-        case .albums: fields = "ratingKey,title,parentTitle,year,addedAt"
-        case .tracks: fields = "ratingKey,title,parentRatingKey,parentTitle,grandparentTitle,originalTitle,parentIndex,index,duration,parentYear,year,key"
+        case .albums: fields = "ratingKey,title,parentRatingKey,parentTitle,year,addedAt"
+        case .tracks: fields = "ratingKey,title,parentRatingKey,parentTitle,grandparentRatingKey,grandparentTitle,originalTitle,parentIndex,index,duration,parentYear,year,key"
         }
         let url = try server.url(for: path).appending(queryItems: filters + [
             URLQueryItem(name: "includeFields", value: "size,offset,totalSize," + fields),

@@ -28,7 +28,7 @@ actor TrackArtistIndex {
             CREATE TABLE tracks (
                 id TEXT UNIQUE, title TEXT, artist TEXT COLLATE artistList, albumID TEXT,
                 album TEXT COLLATE artistList, albumArtist TEXT, year INTEGER, disc INTEGER,
-                number INTEGER, duration REAL, part TEXT, searchable TEXT
+                number INTEGER, duration REAL, part TEXT, searchable TEXT, albumArtistID TEXT
             );
             CREATE TABLE listing (position INTEGER PRIMARY KEY, track INTEGER);
             """)
@@ -53,7 +53,7 @@ actor TrackArtistIndex {
             try order(query: term, ascending: ascending)
         }
         let read = try Statement(db, """
-            SELECT id, title, artist, albumID, album, albumArtist, year, disc, number, duration, part
+            SELECT id, title, artist, albumID, album, albumArtist, year, disc, number, duration, part, albumArtistID
             FROM listing JOIN tracks ON tracks.rowid = listing.track
             WHERE position > ? ORDER BY position LIMIT ?
             """)
@@ -65,7 +65,7 @@ actor TrackArtistIndex {
                               disc: Int(sqlite3_column_int64(read.sql, 7)), number: Int(sqlite3_column_int64(read.sql, 8)),
                               duration: sqlite3_column_double(read.sql, 9), part: read.text(10))
             let year = sqlite3_column_type(read.sql, 6) == SQLITE_NULL ? nil : Int(sqlite3_column_int64(read.sql, 6))
-            let album = Album(id: read.text(3)!, title: read.text(4)!, artist: read.text(5)!, year: year)
+            let album = Album(id: read.text(3)!, title: read.text(4)!, artist: read.text(5)!, year: year, artistID: read.text(11))
             rows.append(.track(track, album))
         }
         let count = listing?.count ?? 0
@@ -78,7 +78,7 @@ actor TrackArtistIndex {
     }
 
     private func insert(_ rows: [MusicRow]) throws {
-        let write = try Statement(db, "INSERT OR REPLACE INTO tracks VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+        let write = try Statement(db, "INSERT OR REPLACE INTO tracks VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
         try transaction {
             for case .track(let t, let a) in rows {
                 try Task.checkCancellation()
@@ -93,6 +93,7 @@ actor TrackArtistIndex {
                 sqlite3_bind_double(write.sql, 10, t.duration)
                 try write.bind(t.part, at: 11)
                 try write.bind(Self.fold([t.title, t.artist, a.title, a.artist].joined(separator: "\n")), at: 12)
+                try write.bind(a.artistID, at: 13)
                 _ = try write.step()
             }
         }

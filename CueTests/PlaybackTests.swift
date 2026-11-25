@@ -20,7 +20,7 @@ final class PlaybackTests: XCTestCase {
     func testDisconnectedCatalogIsEmpty() async throws {
         let store = LibraryStore()
         for kind in Catalog.allCases {
-            let result = try await store.catalog(kind, query: "", offset: 0, artistID: nil, order: .standard(for: kind))
+            let result = try await store.catalog(kind, query: "", offset: 0, artist: nil, order: .standard(for: kind))
             XCTAssertTrue(result.rows.isEmpty)
             XCTAssertEqual(result.total, 0)
             XCTAssertNil(result.next)
@@ -100,6 +100,92 @@ final class PlaybackTests: XCTestCase {
         player.reset()
         XCTAssertTrue(player.queue.isEmpty)
         XCTAssertNil(player.current)
+    }
+
+    private func failCurrentItem(_ player: Player, cause: Error = NSError(domain: AVFoundationErrorDomain, code: -1)) throws {
+        let item = try XCTUnwrap(player.audio.currentItem)
+        NotificationCenter.default.post(name: .AVPlayerItemFailedToPlayToEndTime, object: item,
+                                        userInfo: [AVPlayerItemFailedToPlayToEndTimeErrorKey: cause])
+    }
+
+    func testConnectionLossCanRetryFromPositionWithWindowClosed() async throws {
+        let player = Player()
+        player.volume = 0
+        defer { player.reset() }
+        let entries = try playbackEntries()
+        player.append(entries)
+        try await wait { player.audio.currentItem?.status == .readyToPlay }
+        player.setProgressVisible(false)
+        player.seek(to: 8)
+        try await wait { player.audio.currentTime().seconds >= 8 }
+        let failed = player.audio.currentItem
+        let cause = NSError(domain: AVFoundationErrorDomain, code: -1,
+                            userInfo: [NSUnderlyingErrorKey: URLError(.networkConnectionLost)])
+        try failCurrentItem(player, cause: cause)
+        try await wait { !player.playing && player.error?.contains("Connection lost") == true }
+        XCTAssertEqual(player.queue, entries[...])
+        let saved = player.elapsed
+        XCTAssertGreaterThanOrEqual(saved, 8)
+        player.resume()
+        try await wait { player.playing && player.audio.currentTime().seconds >= saved }
+        XCTAssertFalse(player.audio.currentItem === failed)
+        XCTAssertEqual(player.current?.id, entries[0].id)
+        XCTAssertNil(player.error)
+    }
+
+    func testMissingFilesAdvanceInQueueOrderAndStopAtEnd() async throws {
+        let player = Player()
+        player.volume = 0
+        defer { player.reset() }
+        player.diagnoseMedia = { _ in .missing }
+        let entries = try playbackEntries()
+        player.append(entries)
+        try failCurrentItem(player)
+        try await wait { player.current?.id == entries[1].id && player.playing }
+        XCTAssertEqual(player.queue, [entries[1]])
+        try failCurrentItem(player)
+        try await wait { player.current == nil && player.error?.contains("Track 2") == true }
+        XCTAssertTrue(player.queue.isEmpty)
+        XCTAssertFalse(player.playing)
+    }
+
+    func testPlaybackAccessFailuresPreserveQueueAndOnlyUnauthorizedOpensSignIn() async throws {
+        let store = LibraryStore()
+        let player = store.player
+        player.volume = 0
+        defer { player.reset() }
+        let entries = try playbackEntries()
+        for failure in [PlexFailure.forbidden, .unavailable, .unauthorized] {
+            player.diagnoseMedia = { _ in failure }
+            player.replace(entries, startingAt: 0)
+            try failCurrentItem(player)
+            if failure == .unauthorized {
+                try await wait { store.needsSignIn && store.showConnection }
+            } else {
+                try await wait { player.error == failure.localizedDescription }
+                XCTAssertFalse(store.showConnection)
+                XCTAssertFalse(store.needsSignIn)
+            }
+            XCTAssertEqual(player.current?.id, entries[0].id)
+            XCTAssertEqual(player.queue, entries[...])
+        }
+    }
+
+    func testLateMissingFileResponseCannotSkipNewSelection() async throws {
+        let player = Player()
+        player.volume = 0
+        defer { player.reset() }
+        var pending: CheckedContinuation<PlexFailure?, Never>?
+        player.diagnoseMedia = { _ in await withCheckedContinuation { pending = $0 } }
+        let entries = try playbackEntries()
+        player.append(entries)
+        try failCurrentItem(player)
+        try await wait { pending != nil }
+        player.select(1)
+        pending?.resume(returning: .missing)
+        try await wait { player.current?.id == entries[1].id && player.elapsed > 0 }
+        XCTAssertEqual(player.queue, entries[...])
+        XCTAssertNil(player.error)
     }
 
     func testEqualizerPanelBeforePlayback() throws {
@@ -220,6 +306,43 @@ final class PlaybackTests: XCTestCase {
         player.setProgressVisible(true)
         try await wait { player.elapsed >= 1 }
         XCTAssertTrue(player.playing)
+    }
+
+    func testClosingPlayerWindowKeepsPlayingAndAdvancesQueue() async throws {
+        let store = LibraryStore()
+        let controller = LibraryWindow(store: store)
+        let window = try XCTUnwrap(controller.window)
+        let player = store.player
+        player.volume = 0
+        defer { player.reset(); controller.close() }
+        controller.showWindow(nil)
+        let entries = try playbackEntries()
+        player.replace(entries, startingAt: 0)
+        try await wait { player.audio.currentTime().seconds > 0.2 }
+        player.seek(to: 23)
+        window.performClose(nil)
+        XCTAssertFalse(window.isVisible)
+        try await wait { player.current?.id == entries[1].id && player.audio.currentTime().seconds > 0.2 }
+        controller.showWindow(nil)
+        XCTAssertTrue(window.isVisible)
+        XCTAssertTrue(player.playing)
+        XCTAssertEqual(player.queue.first?.id, entries[1].id)
+        XCTAssertEqual(player.queue.count, 1)
+    }
+
+    func testDockAndWindowMenuReopenThePlayer() throws {
+        let app = try XCTUnwrap(NSApp.delegate as? CueApp)
+        let item = try XCTUnwrap(NSApp.windowsMenu?.item(withTitle: "Show Player"))
+        XCTAssertFalse(app.applicationShouldTerminateAfterLastWindowClosed(NSApp))
+        NSApp.sendAction(try XCTUnwrap(item.action), to: item.target, from: item)
+        let window = try XCTUnwrap(NSApp.windows.first { $0.isVisible && $0.windowController is LibraryWindow })
+        window.performClose(nil)
+        XCTAssertFalse(window.isVisible)
+        XCTAssertTrue(app.applicationShouldHandleReopen(NSApp, hasVisibleWindows: false))
+        XCTAssertTrue(window.isVisible)
+        window.performClose(nil)
+        NSApp.sendAction(try XCTUnwrap(item.action), to: item.target, from: item)
+        XCTAssertTrue(window.isVisible)
     }
 
     func testFooterSeekBarFollowsPlaybackAndSeeking() async throws {
@@ -356,11 +479,11 @@ final class PlaybackTests: XCTestCase {
         table.selectRowIndexes(IndexSet(integer: 0), byExtendingSelection: false)
         let rect = table.rect(ofRow: 1)
         let point = table.convert(NSPoint(x: 20, y: rect.midY), to: nil)
-        let click = try XCTUnwrap(NSEvent.mouseEvent(with: .leftMouseDown, location: point,
+        let click = try XCTUnwrap(NSEvent.mouseEvent(with: .rightMouseDown, location: point,
                                     modifierFlags: .control, timestamp: 0, windowNumber: window.windowNumber,
                                     context: nil, eventNumber: 1, clickCount: 1, pressure: 1))
-        window.sendEvent(click)
-        XCTAssertEqual(table.selectedRowIndexes, IndexSet([0, 1]))
+        XCTAssertNotNil(table.menu(for: click))
+        table.selectRowIndexes(IndexSet(integer: 1), byExtendingSelection: true)
         XCTAssertTrue(controller.moveQueueSelection([entries[1].id, entries[3].id], above: 0))
         try await wait { table.numberOfRows == 6 && table.selectedRowIndexes == IndexSet([1, 2]) }
         XCTAssertEqual(store.player.queue, [entries[0], entries[1], entries[3], entries[2], entries[4], entries[5]])

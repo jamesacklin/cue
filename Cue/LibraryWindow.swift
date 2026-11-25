@@ -2,12 +2,13 @@ import AppKit
 import Combine
 
 private enum Screen: Equatable {
-    case catalog(Catalog), artist(id: String, name: String), album(Album), queue
+    case catalog(Catalog), artist(id: String?, name: String), artistTracks(id: String, name: String), album(Album), queue
 
-    var catalogRequest: (kind: Catalog, artistID: String?)? {
+    var catalogRequest: (kind: Catalog, artist: ArtistFilter?)? {
         switch self {
         case .catalog(let kind): return (kind, nil)
-        case .artist(let id, _): return (.albums, id)
+        case .artist(let id, let name): return (.albums, id.map(ArtistFilter.id) ?? .name(name))
+        case .artistTracks(let id, _): return (.tracks, .id(id))
         default: return nil
         }
     }
@@ -16,6 +17,7 @@ private enum Screen: Equatable {
         switch self {
         case .catalog(let kind): kind.title
         case .artist(_, let name): name
+        case .artistTracks(_, let name): "\(name) — Tracks"
         case .album(let album): album.title
         case .queue: "Queue"
         }
@@ -25,7 +27,7 @@ private enum Screen: Equatable {
         case .catalog(.artists): [.artist]
         case .artist, .catalog(.albums): [.album, .artist, .year]
         case .album: [.number, .track, .artist, .duration]
-        case .catalog(.tracks): [.number, .track, .artist, .album, .duration]
+        case .artistTracks, .catalog(.tracks): [.number, .track, .artist, .album, .duration]
         case .queue: [.track, .artist, .album, .duration]
         }
     }
@@ -34,7 +36,7 @@ private enum Screen: Equatable {
         switch self {
         case .catalog(.artists), .catalog(.albums), .artist: columns + [.recent]
         case .album: columns + [.disc, .year, .albumArtist, .album]
-        case .catalog(.tracks): columns + [.disc, .year, .albumArtist]
+        case .artistTracks, .catalog(.tracks): columns + [.disc, .year, .albumArtist]
         case .queue: columns + [.number, .disc, .year, .albumArtist, .position]
         }
     }
@@ -42,6 +44,7 @@ private enum Screen: Equatable {
     var viewKey: String {
         switch self {
         case .catalog(let kind): kind.title
+        case .artistTracks: "ArtistTracks"
         case .artist: "ArtistAlbums"
         case .album: "AlbumTracks"
         case .queue: "Queue"
@@ -64,6 +67,7 @@ private struct Location {
 }
 
 private final class TitlebarBackground: NSView {
+    var isWindowKey = false { didSet { needsDisplay = true } }
     override var mouseDownCanMoveWindow: Bool { true }
 
     override func viewDidChangeEffectiveAppearance() {
@@ -72,7 +76,12 @@ private final class TitlebarBackground: NSView {
     }
 
     override func draw(_ dirtyRect: NSRect) {
-        drawWindowGradient(in: self)
+        if isWindowKey {
+            drawWindowGradient(in: self)
+        } else {
+            NSColor.windowBackgroundColor.setFill()
+            dirtyRect.fill()
+        }
     }
 }
 
@@ -110,10 +119,14 @@ private final class LibraryCell: NSTableCellView {
 private final class PlayerWindow: NSWindow {
     var playPause: (() -> Void)?
 
+    var acceptsPlaybackSpace: Bool {
+        attachedSheet == nil && (firstResponder === self || firstResponder is MusicTable)
+    }
+
     override func sendEvent(_ event: NSEvent) {
         if event.type == .keyDown, event.charactersIgnoringModifiers == " ",
            event.modifierFlags.intersection([.command, .control, .option, .shift]).isEmpty,
-           !(firstResponder is NSText), attachedSheet == nil, let playPause {
+           acceptsPlaybackSpace, let playPause {
             if !event.isARepeat { playPause() }
             return
         }
@@ -127,24 +140,6 @@ private final class MusicTable: NSTableView {
     weak var searchField: NSSearchField?
 
     var deleteSelection: (() -> Void)?
-
-    private func toggleControlClick(_ event: NSEvent) -> Bool {
-        guard allowsMultipleSelection, event.modifierFlags.contains(.control) else { return false }
-        let row = row(at: convert(event.locationInWindow, from: nil))
-        guard row >= 0 else { return false }
-        window?.makeFirstResponder(self)
-        if selectedRowIndexes.contains(row) { deselectRow(row) }
-        else { selectRowIndexes(IndexSet(integer: row), byExtendingSelection: true) }
-        return true
-    }
-
-    override func mouseDown(with event: NSEvent) {
-        if !toggleControlClick(event) { super.mouseDown(with: event) }
-    }
-
-    override func rightMouseDown(with event: NSEvent) {
-        if !toggleControlClick(event) { super.rightMouseDown(with: event) }
-    }
 
     override func menu(for event: NSEvent) -> NSMenu? {
         rowMenu?(row(at: convert(event.locationInWindow, from: nil)))
@@ -189,7 +184,7 @@ final class LibraryWindow: NSWindowController, NSTableViewDataSource, NSTableVie
     private let status = NSTextField(labelWithString: "")
     private let backButton = NSButton()
     private lazy var transport = Transport(player: store.player, target: self, action: #selector(toggle))
-    private let columnMenu = NSMenu(title: "Columns")
+    let columnMenu = NSMenu(title: "Columns")
     private let columnButton = NSButton()
     private let retry = NSButton()
     private lazy var plexItem: NSToolbarItem = {
@@ -228,6 +223,8 @@ final class LibraryWindow: NSWindowController, NSTableViewDataSource, NSTableVie
                               backing: .buffered, defer: false)
         super.init(window: window)
         window.title = "Cue"
+        window.isReleasedWhenClosed = false
+        window.collectionBehavior.insert(.fullScreenPrimary)
         window.titlebarAppearsTransparent = true
         window.contentMinSize = NSSize(width: 610, height: 300)
         window.center()
@@ -282,6 +279,12 @@ final class LibraryWindow: NSWindowController, NSTableViewDataSource, NSTableVie
         titlebar.translatesAutoresizingMaskIntoConstraints = false
         titlebar.setAccessibilityElement(false)
         content.addSubview(titlebar)
+        titlebar.isWindowKey = window.isKeyWindow
+        let notifications = NotificationCenter.default
+        notifications.publisher(for: NSWindow.didBecomeKeyNotification, object: window)
+            .merge(with: notifications.publisher(for: NSWindow.didResignKeyNotification, object: window))
+            .sink { [weak titlebar] in titlebar?.isWindowKey = $0.name == NSWindow.didBecomeKeyNotification }
+            .store(in: &subscriptions)
 
         let root = NSStackView()
         root.orientation = .vertical
@@ -323,10 +326,10 @@ final class LibraryWindow: NSWindowController, NSTableViewDataSource, NSTableVie
         tabs.segmentStyle = .texturedSquare
         tabs.controlSize = .small
         tabs.font = .systemFont(ofSize: 12, weight: .medium)
-        for (index, symbol) in ["square.stack", "person.2", "music.note"].enumerated() {
-            let image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?
+        for catalog in Catalog.allCases {
+            let image = NSImage(systemSymbolName: catalog.symbol, accessibilityDescription: nil)?
                 .withSymbolConfiguration(.init(pointSize: 11, weight: .medium))
-            tabs.setImage(image, forSegment: index)
+            tabs.setImage(image, forSegment: catalog.rawValue)
         }
         updateQueueBadge(store.player.queue.count)
         tabs.target = self
@@ -374,7 +377,7 @@ final class LibraryWindow: NSWindowController, NSTableViewDataSource, NSTableVie
         table.delegate = self
         table.target = self
         table.doubleAction = #selector(doubleClick)
-        table.rowMenu = { [weak self] row in self?.queueMenu(at: row) }
+        table.rowMenu = { [weak self] row in self?.rowMenu(at: row) }
         table.registerForDraggedTypes([Self.queueDragType])
         table.setDraggingSourceOperationMask(.move, forLocal: true)
         table.setDraggingSourceOperationMask([], forLocal: false)
@@ -515,7 +518,7 @@ final class LibraryWindow: NSWindowController, NSTableViewDataSource, NSTableVie
         if let saved = preferredOrders[screen.viewKey] {
             result.order = saved
         } else if let request = screen.catalogRequest {
-            result.order = .standard(for: request.kind, withinArtist: request.artistID != nil)
+            result.order = .standard(for: request.kind, withinArtist: request.artist != nil)
         } else {
             if case .queue = screen { result.order = CatalogOrder(field: .position) }
             else { result.order = CatalogOrder(field: .number) }
@@ -542,7 +545,7 @@ final class LibraryWindow: NSWindowController, NSTableViewDataSource, NSTableVie
         }
         let current = NSTextField(labelWithString: location.screen.heading)
         current.font = .systemFont(ofSize: 11, weight: .medium)
-        current.textColor = .linkColor
+        current.textColor = .labelColor
         current.lineBreakMode = .byTruncatingTail
         current.toolTip = location.screen.heading
         current.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
@@ -575,6 +578,8 @@ final class LibraryWindow: NSWindowController, NSTableViewDataSource, NSTableVie
         else { table.allowsMultipleSelection = false }
         preferredOrders[location.screen.viewKey] = location.order
         albumTracks = nil
+        table.setAccessibilityLabel(newLocation.screen.heading)
+        search.setAccessibilityLabel("Search " + newLocation.screen.heading)
         search.stringValue = location.query
         search.placeholderString = "Search " + (location.screen.columns.contains(.track) ? "tracks" : location.screen.columns[0].rawValue.lowercased() + "s")
         rebuildBreadcrumbs()
@@ -638,6 +643,18 @@ final class LibraryWindow: NSWindowController, NSTableViewDataSource, NSTableVie
         for field in location.screen.availableColumns {
             let item = columnMenu.addItem(withTitle: field.rawValue, action: #selector(toggleColumn(_:)), keyEquivalent: "")
             item.target = self
+            let symbol: String = switch field {
+            case .album: Catalog.albums.symbol
+            case .track: Catalog.tracks.symbol
+            case .artist, .albumArtist: Catalog.artists.symbol
+            case .disc: "opticaldisc"
+            case .number: "number"
+            case .duration: "clock"
+            case .position: "list.number"
+            case .year: "calendar"
+            case .recent: "calendar.badge.clock"
+            }
+            item.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
             item.state = shown.contains(field) ? .on : .off
             item.isEnabled = shown.count > 1 || item.state == .off
         }
@@ -698,7 +715,7 @@ final class LibraryWindow: NSWindowController, NSTableViewDataSource, NSTableVie
                 if let catalogRequest = request.screen.catalogRequest {
                     let offset = request.position.firstRow
                     let page = try await store.catalog(catalogRequest.kind, query: request.query, offset: offset,
-                                                       artistID: catalogRequest.artistID, order: request.order)
+                                                       artist: catalogRequest.artist, order: request.order)
                     try Task.checkCancellation()
                     guard revision == store.revision else { return }
                     catalogRevision = revision
@@ -818,7 +835,7 @@ final class LibraryWindow: NSWindowController, NSTableViewDataSource, NSTableVie
         job = Task {
             do {
                 let page = try await store.catalog(request.kind, query: location.query, offset: offset,
-                                                   artistID: request.artistID, order: location.order)
+                                                   artist: request.artist, order: location.order)
                 try Task.checkCancellation()
                 guard revision == store.revision else { return }
                 let oldCount = catalog.count
@@ -1023,7 +1040,13 @@ final class LibraryWindow: NSWindowController, NSTableViewDataSource, NSTableVie
         reload()
     }
     @objc func find() { window?.makeFirstResponder(search); search.selectText(nil) }
-    @objc func connect() { store.showConnection = true }
+    @objc func connect() {
+        if window?.isVisible != true || window?.isMiniaturized == true {
+            window?.deminiaturize(nil)
+            showWindow(nil)
+        }
+        store.showConnection = true
+    }
     @objc func toggle() {
         if let event = NSApp.currentEvent, event.type == .keyDown, event.isARepeat { return }
         if store.player.current != nil {
@@ -1049,27 +1072,111 @@ final class LibraryWindow: NSWindowController, NSTableViewDataSource, NSTableVie
     }
     @objc func clearQueue() { store.clearQueue() }
 
-    private func queueMenu(at index: Int) -> NSMenu? {
-        if case .queue = location.screen { return nil }
+    private enum RowCommand: Int, CaseIterable {
+        case append, replace, album, artistAlbums, artistTracks
+
+        var title: String {
+            switch self {
+            case .append: "Append to Queue"
+            case .replace: "Replace Queue"
+            case .album: "Go to Album"
+            case .artistAlbums: "Go to Artist’s Albums"
+            case .artistTracks: "Go to Artist’s Tracks"
+            }
+        }
+
+        var symbol: String {
+            switch self {
+            case .append: "text.badge.plus"
+            case .replace: "arrow.triangle.2.circlepath"
+            case .album: Catalog.albums.symbol
+            case .artistAlbums: Catalog.artists.symbol
+            case .artistTracks: Catalog.tracks.symbol
+            }
+        }
+
+        func destination(for row: MusicRow) -> (title: String, screen: Screen)? {
+            switch (self, row) {
+            case (.album, .track(_, let album)) where !album.id.isEmpty:
+                return ("Go to \(album.title)", .album(album))
+            case (.artistAlbums, .album(let album)):
+                return ("See all albums by \(album.artist)", .artist(id: album.artistID, name: album.artist))
+            case (.artistAlbums, .track(let track, let album)):
+                let id = track.artist == album.artist ? album.artistID : nil
+                return ("Go to \(track.artist)", .artist(id: id, name: track.artist))
+            case (.artistTracks, .artist(let id, let name, _)):
+                return ("See all tracks by \(name)", .artistTracks(id: id, name: name))
+            default: return nil
+            }
+        }
+    }
+
+    func addSelectionCommands(to menu: NSMenu) {
+        for command in RowCommand.allCases {
+            if command == .album { menu.addItem(.separator()) }
+            add(command, title: command.title, to: menu, selection: nil)
+        }
+        menu.addItem(.separator())
+        menu.addItem(withTitle: "Remove from Queue", action: #selector(removeFromQueue), keyEquivalent: "").target = self
+    }
+
+    private func add(_ command: RowCommand, title: String, to menu: NSMenu, selection: RowMenuSelection?) {
+        let item = menu.addItem(withTitle: title, action: #selector(performRowCommand(_:)), keyEquivalent: "")
+        item.target = self
+        item.tag = command.rawValue
+        item.representedObject = selection
+        if let selection {
+            // A discography link from an album uses the Albums tab symbol.
+            let symbol = if case .album = selection.row, command == .artistAlbums { Catalog.albums.symbol } else { command.symbol }
+            item.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
+        }
+    }
+
+    private func rowMenu(at index: Int) -> NSMenu? {
         guard !loading, let row = row(at: index) else { return nil }
         let selection = RowMenuSelection(row: row, albumTracks: albumTracks, revision: store.revision)
         let menu = NSMenu()
-        for (title, action) in [("Append to Queue", #selector(appendToQueue(_:))), ("Replace Queue", #selector(replaceQueue(_:)))] {
-            let item = menu.addItem(withTitle: title, action: action, keyEquivalent: "")
-            item.target = self
-            item.representedObject = selection
+        if location.screen != .queue {
+            for command in [RowCommand.append, .replace] {
+                add(command, title: command.title, to: menu, selection: selection)
+            }
+            menu.addItem(.separator())
+        }
+        for command in [RowCommand.album, .artistAlbums, .artistTracks] {
+            if let destination = command.destination(for: row) {
+                add(command, title: destination.title, to: menu, selection: selection)
+            }
         }
         return menu
     }
 
-    @objc private func appendToQueue(_ item: NSMenuItem) { enqueue(item, action: .append) }
-    @objc private func replaceQueue(_ item: NSMenuItem) { enqueue(item, action: .replace) }
-
-    private func enqueue(_ item: NSMenuItem, action: LibraryStore.QueueAction) {
-        guard let selection = item.representedObject as? RowMenuSelection,
-              selection.revision == store.revision else { return }
-        store.enqueue(selection.row, action: action, albumTracks: selection.albumTracks)
+    private func commandSelection(_ item: NSMenuItem) -> RowMenuSelection? {
+        if let selection = item.representedObject as? RowMenuSelection {
+            return selection.revision == store.revision ? selection : nil
+        }
+        guard window?.isKeyWindow == true, !loading, table.numberOfSelectedRows == 1,
+              let row = row(at: table.selectedRow) else { return nil }
+        return RowMenuSelection(row: row, albumTracks: albumTracks, revision: store.revision)
     }
+
+    @objc private func performRowCommand(_ item: NSMenuItem) {
+        guard let selection = commandSelection(item), let command = RowCommand(rawValue: item.tag) else { return }
+        switch command {
+        case .append, .replace:
+            store.enqueue(selection.row, action: command == .append ? .append : .replace, albumTracks: selection.albumTracks)
+        default:
+            if let screen = command.destination(for: selection.row)?.screen, screen != location.screen || !location.query.isEmpty {
+                open(screen)
+            }
+        }
+    }
+
+    @objc private func removeFromQueue() {
+        guard !loading, case .queue = location.screen else { return }
+        store.player.removeQueuedEntries(selectedQueueIDs)
+    }
+
+    @objc func selectLibraryTab(_ sender: NSMenuItem) { selectTab(sender.tag) }
 
     @objc private func doubleClick() {
         if table.clickedRow >= 0 { act(at: table.clickedRow) }
@@ -1101,8 +1208,6 @@ final class LibraryWindow: NSWindowController, NSTableViewDataSource, NSTableVie
         if show, connection == nil {
             let sheet = NSWindow(contentViewController: ConnectionView(store: store))
             sheet.title = "Plex Connection"
-            sheet.appearance = NSAppearance(named: .darkAqua)
-            sheet.backgroundColor = .cuePanel
             sheet.styleMask = [.titled]
             connection = sheet
             window.beginSheet(sheet)
@@ -1114,16 +1219,22 @@ final class LibraryWindow: NSWindowController, NSTableViewDataSource, NSTableVie
 
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
         switch menuItem.action {
+        case #selector(performRowCommand(_:)):
+            guard let command = RowCommand(rawValue: menuItem.tag), let selection = commandSelection(menuItem) else { return false }
+            if command == .append || command == .replace { return location.screen != .queue }
+            return command.destination(for: selection.row) != nil
+        case #selector(removeFromQueue):
+            return window?.isKeyWindow == true && location.screen == .queue && !loading && table.numberOfSelectedRows > 0
+        case #selector(selectLibraryTab(_:)):
+            menuItem.state = activeTab == menuItem.tag ? .on : .off
+            return window?.isKeyWindow == true
         case #selector(setOrder(_:)):
             menuItem.state = (menuItem.representedObject as? String) == location.order.field.rawValue ? .on : .off
-            switch location.screen {
-            case .artist, .catalog(.albums): return true
-            default: return false
-            }
+            return location.screen.catalogRequest?.kind == .albums
         case #selector(back): return !history.isEmpty
-        case #selector(toggle): return (store.player.current != nil || canStartSelection) && window?.attachedSheet == nil && !(window?.firstResponder is NSText)
-        case #selector(nextTrack): return store.player.hasNext
-        case #selector(previousTrack): return store.player.current != nil
+        case #selector(toggle): return (store.player.current != nil || canStartSelection) && window?.attachedSheet == nil
+        case #selector(nextTrack): return store.player.hasNext && !(NSApp.keyWindow?.firstResponder is NSText)
+        case #selector(previousTrack): return store.player.current != nil && !(NSApp.keyWindow?.firstResponder is NSText)
         case #selector(clearQueue): return store.canClearQueue
         default: return true
         }
