@@ -721,6 +721,9 @@ final class LibraryWindow: NSWindowController, NSTableViewDataSource, NSTableVie
     }
     @objc func nextTrack() { store.player.next() }
     @objc func previousTrack() { store.player.previous() }
+    private lazy var equalizerPanel = EqualizerPanel(equalizer: store.player.equalizer)
+    @objc func showEqualizer() { equalizerPanel.showWindow(nil) }
+
     @objc func audioOutput() { if let window { showOutputPicker(for: store.player, in: window) } }
     @objc func clearQueue() { store.clearQueue() }
     @objc private func doubleClick() { if table.clickedRow >= 0 { act() } }

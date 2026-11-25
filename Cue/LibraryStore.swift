@@ -18,7 +18,7 @@ final class LibraryStore: ObservableObject {
     @Published private(set) var revision = 0
 
     let client: PlexClient
-    let player = Player()
+    let player: Player
     private let log = Logger(subsystem: "org.cueplayer.Minimal", category: "PlexConnection")
     private var token: String?
     private var job: Task<Void, Never>?
@@ -28,6 +28,7 @@ final class LibraryStore: ObservableObject {
 
     init(client: PlexClient? = nil, defaults: UserDefaults = .standard) {
         self.defaults = defaults
+        player = Player(defaults: defaults)
         let id = defaults.string(forKey: "clientID") ?? UUID().uuidString
         defaults.set(id, forKey: "clientID")
         self.client = client ?? PlexClient(identifier: id)

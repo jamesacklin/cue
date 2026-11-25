@@ -29,6 +29,12 @@ final class Player: ObservableObject {
     private var systemTransport: SystemTransport?
     private let log = Logger(subsystem: "org.cueplayer.Minimal", category: "Playback")
 
+    let equalizer: Equalizer
+
+    init(defaults: UserDefaults = .standard) {
+        equalizer = Equalizer(defaults: defaults)
+    }
+
     var current: QueueEntry? { index.flatMap { queue.indices.contains($0) ? queue[$0] : nil } }
     var hasNext: Bool { index.map { $0 + 1 < queue.count } ?? false }
 
@@ -118,6 +124,7 @@ final class Player: ObservableObject {
                 self.playbackFailed()
             }
         }
+        equalizer.attach(to: item)
         audio.replaceCurrentItem(with: item)
         if systemTransport == nil { systemTransport = SystemTransport(player: self) }
         audio.play()
@@ -167,6 +174,7 @@ final class Player: ObservableObject {
     }
 
     func reset() {
+        equalizer.attach(to: nil)
         systemTransport = nil
         end = nil
         failure = nil

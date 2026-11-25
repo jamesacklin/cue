@@ -49,6 +49,113 @@ final class PlaybackTests: XCTestCase {
         XCTAssertNil(player.current)
     }
 
+    func testEqualizerPanelBeforePlayback() throws {
+        let suite = "CueEQPanel-" + UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let player = Player(defaults: defaults)
+        let controller = EqualizerPanel(equalizer: player.equalizer)
+        controller.showWindow(nil)
+        defer { controller.close() }
+        let view = try XCTUnwrap(controller.window?.contentView)
+        view.layoutSubtreeIfNeeded()
+        let sliders = view.descendants(of: NSSlider.self)
+        XCTAssertEqual(sliders.count, 10)
+        for slider in sliders {
+            XCTAssertTrue(view.bounds.contains(slider.convert(slider.bounds, to: view)))
+        }
+        let slider = try XCTUnwrap(sliders.first { $0.accessibilityLabel() == "1 kHz" })
+        slider.doubleValue = 0.5
+        XCTAssertTrue(slider.sendAction(slider.action, to: slider.target))
+        XCTAssertEqual(player.equalizer.gains[5], 4)
+        let buttons = view.descendants(of: NSButton.self)
+        try XCTUnwrap(buttons.first { $0.title == "Enable equalizer" }).performClick(nil)
+        XCTAssertTrue(player.equalizer.enabled)
+        try XCTUnwrap(buttons.first { $0.title == "Reset to Flat" }).performClick(nil)
+        XCTAssertEqual(slider.doubleValue, 0)
+        XCTAssertNil(player.routePlayer.value)
+    }
+
+    func testEqualizerDuringPlaybackAndTrackChanges() async throws {
+        let suite = "CueEQ-" + UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let player = Player(defaults: defaults)
+        player.volume = 0
+        defer { player.reset() }
+        player.replace(try playbackEntries(), startingAt: 0)
+        let item = try XCTUnwrap(player.audio.currentItem)
+        XCTAssertNil(item.audioMix)
+        let eq = player.equalizer
+        eq.setGain(-8, band: 3)
+        eq.setEnabled(true)
+        try await wait { item.audioMix != nil && player.elapsed > 0.2 }
+        eq.setEnabled(false)
+        XCTAssertTrue(item === player.audio.currentItem)
+        XCTAssertEqual(eq.gains[3], -8)
+        eq.setEnabled(true)
+        let restored = Equalizer(defaults: defaults)
+        XCTAssertTrue(restored.enabled)
+        XCTAssertEqual(restored.gains, eq.gains)
+        player.seek(to: 23.3)
+        try await wait { player.index == 1 && player.audio.currentItem?.audioMix != nil }
+        eq.flatten()
+        XCTAssertEqual(eq.gains, Array(repeating: 0, count: 10))
+    }
+
+    func testEqualizerChangesRenderedFixtureAudio() async throws {
+        let url = try playbackEntries()[0].url
+        let item = AVPlayerItem(url: url)
+        let tracks = try await item.asset.loadTracks(withMediaType: .audio)
+        let track = try XCTUnwrap(tracks.first)
+        let suite = "CueEQRender-" + UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let eq = Equalizer(defaults: defaults)
+        eq.setEnabled(true)
+        eq.attach(to: item)
+        try await wait { item.audioMix != nil }
+
+        func level(_ mix: AVAudioMix?) throws -> Double {
+            let reader = try AVAssetReader(asset: item.asset)
+            reader.timeRange = CMTimeRange(start: CMTime(value: 1, timescale: 1),
+                                           duration: CMTime(value: 1, timescale: 2))
+            let output = AVAssetReaderAudioMixOutput(audioTracks: [track], audioSettings: [
+                AVFormatIDKey: kAudioFormatLinearPCM, AVLinearPCMIsFloatKey: true,
+                AVLinearPCMBitDepthKey: 32, AVLinearPCMIsNonInterleaved: false
+            ])
+            output.audioMix = mix
+            reader.add(output)
+            XCTAssertTrue(reader.startReading())
+            var power = 0.0
+            var count = 0
+            while let sample = output.copyNextSampleBuffer() {
+                let block = try XCTUnwrap(CMSampleBufferGetDataBuffer(sample))
+                var values = Array(repeating: Float.zero, count: CMBlockBufferGetDataLength(block) / 4)
+                let status = values.withUnsafeMutableBytes {
+                    CMBlockBufferCopyDataBytes(block, atOffset: 0, dataLength: $0.count, destination: $0.baseAddress!)
+                }
+                XCTAssertEqual(status, noErr)
+                for value in values { power += Double(value) * Double(value) }
+                count += values.count
+            }
+            XCTAssertEqual(reader.status, .completed)
+            XCTAssertGreaterThan(count, 0)
+            return 10 * log10(power / Double(count))
+        }
+        let dry = try level(nil)
+        XCTAssertEqual(try level(item.audioMix), dry, accuracy: 0.01)
+        // Measure the midrange of the fixture against its unfiltered render.
+        eq.setGain(12, band: 4)
+        let boosted = try level(item.audioMix)
+        eq.setGain(-12, band: 4)
+        let cut = try level(item.audioMix)
+        XCTAssertGreaterThan(boosted, dry + 1)
+        XCTAssertLessThan(cut, dry - 1)
+        eq.setEnabled(false)
+        XCTAssertEqual(try level(item.audioMix), dry, accuracy: 0.01)
+    }
+
     func testHiddenProgressKeepsPlayingAndResumesAtCurrentPosition() async throws {
         let player = Player()
         player.volume = 0
