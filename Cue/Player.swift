@@ -36,7 +36,9 @@ final class Player: ObservableObject {
         equalizer = Equalizer(defaults: defaults)
     }
 
-    var hasNext: Bool { !queue.isEmpty }
+    var hasNext: Bool { nextPosition != nil }
+
+    private var nextPosition: Int? { queue.firstIndex { $0.id != current?.id } }
 
     var audio: AVPlayer {
         if let engine { return engine }
@@ -89,7 +91,7 @@ final class Player: ObservableObject {
     func replace(_ entries: [QueueEntry], startingAt index: Int) {
         guard entries.indices.contains(index) else { return }
         history.removeAll()
-        queue = Array(entries.dropFirst(index + 1))
+        queue = Array(entries.dropFirst(index))
         start(entries[index])
     }
 
@@ -97,7 +99,7 @@ final class Player: ObservableObject {
         guard let first = entries.first else { return }
         if current == nil || finished {
             if let current { history.append(current) }
-            queue = Array(entries.dropFirst())
+            queue = entries
             start(first)
         } else {
             queue.append(contentsOf: entries)
@@ -127,8 +129,8 @@ final class Player: ObservableObject {
 
     func select(_ position: Int) {
         guard queue.indices.contains(position) else { return }
-        if let current { history.append(current) }
-        let entry = queue.remove(at: position)
+        let entry = queue[position]
+        if let current, current.id != entry.id { history.append(current) }
         start(entry)
     }
 
@@ -143,6 +145,7 @@ final class Player: ObservableObject {
         end = NotificationCenter.default.publisher(for: .AVPlayerItemDidPlayToEndTime, object: item)
             .receive(on: RunLoop.main).sink { [weak self, weak item] _ in
                 guard let self, let item, self.engine?.currentItem === item else { return }
+                self.removeQueuedEntries([entry.id])
                 if self.hasNext { self.next() }
                 else { self.finished = true; self.audio.pause() }
             }
@@ -190,7 +193,10 @@ final class Player: ObservableObject {
 
     func resume() {
         guard let current else { return }
-        if finished || audio.currentItem?.status == .failed || error != nil { start(current) }
+        if finished {
+            queue.insert(current, at: 0)
+            start(current)
+        } else if audio.currentItem?.status == .failed || error != nil { start(current) }
         else { audio.play() }
     }
 
@@ -200,16 +206,19 @@ final class Player: ObservableObject {
         if position > 3 || history.isEmpty {
             seek(to: 0)
         } else if let previous = history.popLast() {
-            queue.insert(current, at: 0)
+            if !queue.contains(where: { $0.id == previous.id }) { queue.insert(previous, at: 0) }
             start(previous)
         }
     }
 
-    func next() { select(0) }
+    func next() { if let nextPosition { select(nextPosition) } }
 
     func seek(to time: Double) {
-        guard current != nil, time.isFinite else { return }
-        finished = false
+        guard let current, time.isFinite else { return }
+        if finished {
+            queue.insert(current, at: 0)
+            finished = false
+        }
         elapsed = min(length, max(0, time))
         audio.seek(to: CMTime(seconds: elapsed, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero)
         updateSystemTransport(position: elapsed)

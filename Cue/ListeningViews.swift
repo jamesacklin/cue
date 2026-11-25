@@ -110,7 +110,7 @@ final class Transport: NSStackView, @preconcurrency AVRoutePickerViewDelegate {
             .store(in: &subscriptions)
         Publishers.CombineLatest4(player.$queue, player.$current, player.$playing, player.$error)
             .sink { [weak self] queue, current, playing, error in
-                self?.render(current, playing: playing, error: error, hasNext: !queue.isEmpty)
+                self?.render(current, playing: playing, error: error, hasNext: queue.contains { $0.id != current?.id })
             }.store(in: &subscriptions)
     }
     required init?(coder: NSCoder) { fatalError() }

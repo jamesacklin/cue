@@ -335,7 +335,7 @@ final class PlexClientTests: XCTestCase {
         store.enqueue(.album(Album(id: "1", title: "First", artist: "The Band", year: nil)), action: .replace)
         try await waitUntil { store.player.current != nil }
         XCTAssertEqual(store.player.current?.track.id, "11")
-        XCTAssertTrue(store.player.queue.isEmpty)
+        XCTAssertEqual(store.player.queue.map(\.track.id), ["11"])
     }
 
     @MainActor
@@ -380,9 +380,9 @@ final class PlexClientTests: XCTestCase {
         let artist = try menu(at: 0)
         artist.performActionForItem(at: 0)
         artist.performActionForItem(at: 0)
-        guard await waitFor("two artist appends", { store.player.queue.count == 6 }) else { return }
+        guard await waitFor("two artist appends", { store.player.queue.count == 7 }) else { return }
         XCTAssertEqual(store.player.current?.track.id, "11")
-        XCTAssertEqual(store.player.queue.map(\.track.id), ["21", "22", "11", "21", "22", "11"])
+        XCTAssertEqual(store.player.queue.map(\.track.id), ["11", "21", "22", "11", "21", "22", "11"])
 
         // Open the second album using the keyboard, then append just its second track.
         tabs.selectedSegment = Catalog.albums.rawValue
@@ -399,11 +399,11 @@ final class PlexClientTests: XCTestCase {
         table.selectRowIndexes(IndexSet(integer: 0), byExtendingSelection: false)
         let track = try menu(at: 1)
         track.performActionForItem(at: 0)
-        guard await waitFor("single track append", { store.player.queue.count == 7 }) else { return }
+        guard await waitFor("single track append", { store.player.queue.count == 8 }) else { return }
         XCTAssertEqual(store.player.queue.last?.track.id, "22")
         track.performActionForItem(at: 1)
         guard await waitFor("replacement track playback", { store.player.current?.track.id == "22" }) else { return }
-        XCTAssertTrue(store.player.queue.isEmpty)
+        XCTAssertEqual(store.player.queue.map(\.track.id), ["22"])
     }
 
     @MainActor
