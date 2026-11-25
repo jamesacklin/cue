@@ -63,6 +63,19 @@ private struct Location {
     var order = CatalogOrder.standard(for: .albums)
 }
 
+private final class TitlebarBackground: NSView {
+    override var mouseDownCanMoveWindow: Bool { true }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        needsDisplay = true
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        drawWindowGradient(in: self)
+    }
+}
+
 private final class PlacesBar: NSStackView {
     override func draw(_ dirtyRect: NSRect) {
         let area = dirtyRect.intersection(bounds)
@@ -179,7 +192,13 @@ final class LibraryWindow: NSWindowController, NSTableViewDataSource, NSTableVie
     private let columnMenu = NSMenu(title: "Columns")
     private let columnButton = NSButton()
     private let retry = NSButton()
-    private let plex = NSButton()
+    private lazy var plexItem: NSToolbarItem = {
+        let item = NSToolbarItem(itemIdentifier: Self.connectionItem)
+        item.target = self
+        item.action = #selector(connect)
+        item.isBordered = true
+        return item
+    }()
     private var connection: NSWindow?
     private var location = Location(screen: .catalog(.albums))
     private var preferredOrders: [String: CatalogOrder] = [:]
@@ -201,9 +220,11 @@ final class LibraryWindow: NSWindowController, NSTableViewDataSource, NSTableVie
     init(store: LibraryStore) {
         self.store = store
         let window = PlayerWindow(contentRect: NSRect(x: 0, y: 0, width: 760, height: 460),
-                              styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
+                              styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
+                              backing: .buffered, defer: false)
         super.init(window: window)
         window.title = "Cue"
+        window.titlebarAppearsTransparent = true
         window.contentMinSize = NSSize(width: 610, height: 300)
         window.center()
         window.playPause = { [weak self] in self?.toggle() }
@@ -215,6 +236,7 @@ final class LibraryWindow: NSWindowController, NSTableViewDataSource, NSTableVie
             }.store(in: &subscriptions)
         store.$revision.dropFirst().receive(on: RunLoop.main).sink { [weak self] _ in
             guard let self else { return }
+            self.updateConnectionButton()
             self.savedTabs.removeAll()
             self.activeTab = nil
             self.selectTab(0)
@@ -247,11 +269,31 @@ final class LibraryWindow: NSWindowController, NSTableViewDataSource, NSTableVie
     required init?(coder: NSCoder) { fatalError() }
 
     private func build(_ window: NSWindow) {
+        let content = NSView()
+        window.contentView = content
+        let contentTop = (window.contentLayoutGuide as? NSLayoutGuide)?.topAnchor ?? content.topAnchor
+        let titlebar = TitlebarBackground()
+        titlebar.translatesAutoresizingMaskIntoConstraints = false
+        titlebar.setAccessibilityElement(false)
+        content.addSubview(titlebar)
+
         let root = NSStackView()
         root.orientation = .vertical
         root.spacing = 0
         root.alignment = .leading
-        window.contentView = root
+        root.translatesAutoresizingMaskIntoConstraints = false
+        content.addSubview(root)
+        NSLayoutConstraint.activate([
+            titlebar.topAnchor.constraint(equalTo: content.topAnchor),
+            titlebar.leadingAnchor.constraint(equalTo: content.leadingAnchor),
+            titlebar.trailingAnchor.constraint(equalTo: content.trailingAnchor),
+            titlebar.bottomAnchor.constraint(equalTo: contentTop),
+            root.topAnchor.constraint(equalTo: contentTop),
+            root.leadingAnchor.constraint(equalTo: content.leadingAnchor),
+            root.trailingAnchor.constraint(equalTo: content.trailingAnchor),
+            root.bottomAnchor.constraint(equalTo: content.bottomAnchor)
+        ])
+
         func divider() {
             let rule = NSBox()
             rule.boxType = .separator
@@ -286,11 +328,7 @@ final class LibraryWindow: NSWindowController, NSTableViewDataSource, NSTableVie
         search.delegate = self
         search.sendsSearchStringImmediately = true
         search.widthAnchor.constraint(equalToConstant: 185).isActive = true
-        configure(plex, "Connect to Plex…", #selector(connect))
-        plex.image = NSImage(systemSymbolName: "bolt.fill", accessibilityDescription: nil)?
-            .withSymbolConfiguration(.init(paletteColors: [.systemGreen]))
-        plex.imagePosition = .imageLeading
-        plex.bezelStyle = .texturedRounded
+        updateConnectionButton()
         let toolbar = NSToolbar(identifier: "CueLibraryToolbar")
         toolbar.delegate = self
         toolbar.displayMode = .iconOnly
@@ -324,7 +362,7 @@ final class LibraryWindow: NSWindowController, NSTableViewDataSource, NSTableVie
         table.usesAlternatingRowBackgroundColors = true
         table.rowHeight = 20
         table.intercellSpacing = NSSize(width: 8, height: 1)
-        table.allowsColumnReordering = false
+        table.allowsColumnReordering = true
         table.columnAutoresizingStyle = .lastColumnOnlyAutoresizingStyle
         table.dataSource = self
         table.delegate = self
@@ -369,13 +407,78 @@ final class LibraryWindow: NSWindowController, NSTableViewDataSource, NSTableVie
 
     func toolbar(_ toolbar: NSToolbar, itemForItemIdentifier identifier: NSToolbarItem.Identifier,
                  willBeInsertedIntoToolbar flag: Bool) -> NSToolbarItem? {
-        guard identifier == Self.connectionItem else { return nil }
-        let item = NSToolbarItem(itemIdentifier: identifier)
-        item.label = "Plex Connection"
-        item.target = self
-        item.action = #selector(connect)
-        item.view = plex
-        return item
+        identifier == Self.connectionItem ? plexItem : nil
+    }
+
+    private func updateConnectionButton() {
+        let server = store.server
+        let name = server?.name.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let connected = server != nil
+        let title = connected ? (name.isEmpty ? "Plex" : name) : "Connect to Plex…"
+        let image = Self.connectionIcon(connected: connected)
+        plexItem.title = Self.toolbarTitle(title)
+        plexItem.label = title
+        plexItem.image = image
+        plexItem.toolTip = connected ? "Connected to \(title)" : title
+    }
+
+    private static func toolbarTitle(_ title: String) -> String {
+        let attributes: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: NSFont.systemFontSize)]
+        let maxWidth: CGFloat = 200
+        guard title.size(withAttributes: attributes).width > maxWidth else { return title }
+        var shortened = ""
+        for character in title {
+            let next = shortened + String(character)
+            guard (next + "…").size(withAttributes: attributes).width <= maxWidth else { break }
+            shortened = next
+        }
+        return shortened + "…"
+    }
+
+    private static func connectionIcon(connected: Bool) -> NSImage {
+        NSImage(size: NSSize(width: 18, height: 18), flipped: false) { rect in
+            let face: CGFloat = connected ? 0.95 : 3.15
+            let rear = face + 4.25
+            let halfBody: CGFloat = 3.15
+            let body = NSBezierPath()
+            body.move(to: NSPoint(x: face, y: -halfBody))
+            body.line(to: NSPoint(x: rear - 1.75, y: -halfBody))
+            body.curve(to: NSPoint(x: rear, y: -halfBody + 1.75),
+                       controlPoint1: NSPoint(x: rear - 0.8, y: -halfBody),
+                       controlPoint2: NSPoint(x: rear, y: -halfBody + 0.8))
+            body.line(to: NSPoint(x: rear, y: halfBody - 1.75))
+            body.curve(to: NSPoint(x: rear - 1.75, y: halfBody),
+                       controlPoint1: NSPoint(x: rear, y: halfBody - 0.8),
+                       controlPoint2: NSPoint(x: rear - 0.8, y: halfBody))
+            body.line(to: NSPoint(x: face, y: halfBody))
+            body.move(to: NSPoint(x: face, y: -3.9))
+            body.line(to: NSPoint(x: face, y: 3.9))
+            for y in [-1.1, 1.1] {
+                body.move(to: NSPoint(x: rear, y: y))
+                body.line(to: NSPoint(x: 9.5, y: y))
+            }
+
+            let pair = NSBezierPath()
+            pair.append(body)
+            body.transform(using: AffineTransform(scaleByX: -1, byY: 1))
+            pair.append(body)
+            if !connected {
+                for y in [-1.45, 1.45] {
+                    pair.move(to: NSPoint(x: face, y: y))
+                    pair.line(to: NSPoint(x: 0.15, y: y))
+                }
+            }
+
+            var angle = AffineTransform(translationByX: rect.midX, byY: rect.midY)
+            angle.rotate(byDegrees: 45)
+            pair.transform(using: angle)
+            pair.lineWidth = 1.3
+            pair.lineCapStyle = .round
+            pair.lineJoinStyle = .round
+            (connected ? NSColor.systemGreen : .secondaryLabelColor).setStroke()
+            pair.stroke()
+            return true
+        }
     }
 
     private func selectTab(_ tab: Int) {
@@ -463,11 +566,36 @@ final class LibraryWindow: NSWindowController, NSTableViewDataSource, NSTableVie
     }
 
     private var columnKey: String { "columns." + location.screen.viewKey }
+    private var columnOrderKey: String { "columnOrder." + location.screen.viewKey }
+
+    private var orderedColumns: [CatalogOrder.Field] {
+        let available = location.screen.availableColumns
+        var remaining = Set(available)
+        let saved = (store.defaults.stringArray(forKey: columnOrderKey) ?? [])
+            .compactMap(CatalogOrder.Field.init(rawValue:))
+            .filter { remaining.remove($0) != nil }
+        return saved + available.filter(remaining.contains)
+    }
+
     private var visibleColumns: [CatalogOrder.Field] {
-        let screen = location.screen
-        guard let saved = store.defaults.stringArray(forKey: columnKey) else { return screen.columns }
-        let columns = screen.availableColumns.filter { saved.contains($0.rawValue) }
-        return columns.isEmpty ? screen.columns : columns
+        let order = orderedColumns
+        let defaultColumns = location.screen.columns.map(\.rawValue)
+        let shown = Set(store.defaults.stringArray(forKey: columnKey) ?? defaultColumns)
+        let columns = order.filter { shown.contains($0.rawValue) }
+        return columns.isEmpty ? order.filter { defaultColumns.contains($0.rawValue) } : columns
+    }
+
+    func tableViewColumnDidMove(_ notification: Notification) {
+        guard notification.object as? NSTableView === table else { return }
+        let moved = table.tableColumns.map(\.identifier.rawValue)
+        let visible = Set(moved)
+        var newOrder = moved.makeIterator()
+        // Keep hidden columns in their saved positions while reordering visible columns.
+        let order = orderedColumns.map { field in
+            let name = field.rawValue
+            return visible.contains(name) ? newOrder.next() ?? name : name
+        }
+        store.defaults.set(order, forKey: columnOrderKey)
     }
 
     @objc private func showColumns(_ sender: NSButton) {
@@ -572,7 +700,6 @@ final class LibraryWindow: NSWindowController, NSTableViewDataSource, NSTableVie
                     rows = page.rows
                 }
                 window?.subtitle = store.section?.title ?? ""
-                plex.title = store.server == nil ? "Connect to Plex…" : "Plex Connection…"
                 updateCount()
             } catch {
                 guard !Task.isCancelled, revision == store.revision else { return }
@@ -870,7 +997,12 @@ final class LibraryWindow: NSWindowController, NSTableViewDataSource, NSTableVie
     private lazy var equalizerPanel = EqualizerPanel(equalizer: store.player.equalizer)
     @objc func showEqualizer() { equalizerPanel.showWindow(nil) }
 
-    @objc func audioOutput() { if let window { showOutputPicker(for: store.player, in: window) } }
+    @objc func audioOutput() { if let window { transport.showOutputPicker(in: window) } }
+    @objc func copyAirPlayDiagnostics() {
+        let clipboard = NSPasteboard.general
+        clipboard.clearContents()
+        clipboard.setString(store.player.airPlayDiagnostics.report, forType: .string)
+    }
     @objc func clearQueue() { store.clearQueue() }
 
     private func queueMenu(at index: Int) -> NSMenu? {

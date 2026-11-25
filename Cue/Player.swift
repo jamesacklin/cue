@@ -16,7 +16,10 @@ final class Player: ObservableObject {
     }
     let routePlayer = CurrentValueSubject<AVPlayer?, Never>(nil)
     private var engine: AVPlayer? {
-        didSet { routePlayer.send(engine) }
+        didSet {
+            airPlayDiagnostics.observePlayer(engine)
+            routePlayer.send(engine)
+        }
     }
     private var clock: Any?
     private var progressVisible = true
@@ -29,6 +32,8 @@ final class Player: ObservableObject {
     private var history: [QueueEntry] = []
     private var systemTransport: SystemTransport?
     private let log = Logger(subsystem: "org.cueplayer.Minimal", category: "Playback")
+
+    let airPlayDiagnostics = AirPlayDiagnostics()
 
     let equalizer: Equalizer
 
@@ -142,6 +147,7 @@ final class Player: ObservableObject {
         length = entry.track.duration
         let item = AVPlayerItem(url: entry.url)
         item.preferredForwardBufferDuration = 5
+        airPlayDiagnostics.observeItem(item)
         end = NotificationCenter.default.publisher(for: .AVPlayerItemDidPlayToEndTime, object: item)
             .receive(on: RunLoop.main).sink { [weak self, weak item] _ in
                 guard let self, let item, self.engine?.currentItem === item else { return }
@@ -150,19 +156,28 @@ final class Player: ObservableObject {
                 else { self.finished = true; self.audio.pause() }
             }
         failure = NotificationCenter.default.publisher(for: .AVPlayerItemFailedToPlayToEndTime, object: item)
-            .receive(on: RunLoop.main).sink { [weak self, weak item] _ in
+            .receive(on: RunLoop.main).sink { [weak self, weak item] notification in
                 guard let self, let item, self.engine?.currentItem === item else { return }
+                let error = notification.userInfo?[AVPlayerItemFailedToPlayToEndTimeErrorKey] as? Error ?? item.error
+                self.airPlayDiagnostics.recordFailure("Playback failed before the end of the item", error: error)
                 self.playbackFailed()
             }
         stall = NotificationCenter.default.publisher(for: AVPlayerItem.playbackStalledNotification, object: item)
             .receive(on: RunLoop.main).sink { [weak self, weak item] _ in
                 guard let self, let item, self.engine?.currentItem === item else { return }
                 self.log.notice("Playback stalled while waiting for media data")
+                self.airPlayDiagnostics.record("Playback stalled (buffer empty=\(item.isPlaybackBufferEmpty)" +
+                                               ", likely to keep up=\(item.isPlaybackLikelyToKeepUp))")
             }
         itemStatus = item.observe(\.status, options: [.new]) { [weak self] item, _ in
             Task { @MainActor in
-                guard let self, self.engine?.currentItem === item, item.status == .failed else { return }
-                self.playbackFailed()
+                guard let self, self.engine?.currentItem === item else { return }
+                if item.status == .readyToPlay {
+                    self.airPlayDiagnostics.record("Playback item ready")
+                } else if item.status == .failed {
+                    self.airPlayDiagnostics.recordFailure("Playback item failed", error: item.error)
+                    self.playbackFailed()
+                }
             }
         }
         equalizer.attach(to: item)

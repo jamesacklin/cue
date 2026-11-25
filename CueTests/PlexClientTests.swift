@@ -581,9 +581,54 @@ final class PlexClientTests: XCTestCase {
         window.setContentSize(window.contentMinSize)
         controller.showWindow(nil)
         defer { controller.close() }
-        let button = try XCTUnwrap(window.toolbar?.visibleItems?.compactMap { $0.view as? NSButton }.first)
-        XCTAssertTrue(button.isEnabled)
-        button.performClick(nil)
+        let item = try XCTUnwrap(window.toolbar?.visibleItems?.first { $0.itemIdentifier.rawValue == "CuePlexConnection" })
+        let content = try XCTUnwrap(window.contentView)
+        let library = try XCTUnwrap(content.subviews.compactMap { $0 as? NSStackView }.first)
+        window.layoutIfNeeded()
+        XCTAssertLessThan(library.frame.maxY, content.bounds.maxY)
+        XCTAssertTrue(item.isEnabled)
+        XCTAssertTrue(item.isBordered)
+        XCTAssertNil(item.view)
+        XCTAssertTrue(NSApp.sendAction(try XCTUnwrap(item.action), to: item.target, from: item))
+        try await waitUntil { window.attachedSheet != nil }
+        let done = try XCTUnwrap(window.attachedSheet?.contentView?.descendants(of: NSButton.self).first { $0.title == "Done" })
+        done.performClick(nil)
+        try await waitUntil { window.attachedSheet == nil }
+    }
+
+    @MainActor
+    func testToolbarShowsServerNameAfterLibraryIsValidated() async throws {
+        let suite = "CueConnectionToolbar-" + UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let store = LibraryStore(client: client, defaults: defaults)
+        let controller = LibraryWindow(store: store)
+        let window = try XCTUnwrap(controller.window)
+        window.setContentSize(window.contentMinSize)
+        controller.showWindow(nil)
+        defer { controller.close() }
+
+        let item = try XCTUnwrap(window.toolbar?.visibleItems?.first { $0.itemIdentifier.rawValue == "CuePlexConnection" })
+        let disconnectedIcon = item.image
+        XCTAssertNotNil(disconnectedIcon)
+        XCTAssertEqual(item.title, "Connect to Plex…")
+
+        let name = "Stereo in the living room and a very long Plex server name for the toolbar"
+        store.choose(PlexResource(clientIdentifier: "server", name: name, provides: "server", accessToken: server.token,
+                                  connections: [.init(uri: server.base, local: false, relay: nil)]))
+        try await waitUntil { !store.sections.isEmpty }
+        XCTAssertEqual(item.title, "Connect to Plex…")
+
+        store.choose(try XCTUnwrap(store.sections.first))
+        try await waitUntil { item.label == name }
+        XCTAssertTrue(name.hasPrefix(String(item.title.dropLast())))
+        XCTAssertTrue(item.title.hasSuffix("…"))
+        XCTAssertEqual(item.toolTip, "Connected to \(name)")
+        XCTAssertNotNil(item.image)
+        XCTAssertFalse(item.image === disconnectedIcon)
+        window.layoutIfNeeded()
+        XCTAssertTrue(window.toolbar?.visibleItems?.contains(item) == true)
+        XCTAssertTrue(NSApp.sendAction(try XCTUnwrap(item.action), to: item.target, from: item))
         try await waitUntil { window.attachedSheet != nil }
         let done = try XCTUnwrap(window.attachedSheet?.contentView?.descendants(of: NSButton.self).first { $0.title == "Done" })
         done.performClick(nil)

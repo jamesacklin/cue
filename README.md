@@ -4,7 +4,7 @@ A text-only Plex music player for macOS 14 and later. It opens on an album list.
 
 ## Listen
 
-Choose **Connect to Plex…**, sign in through your browser, then select a server and music library. On the next launch the player restores that selection. Account credentials are stored in this app’s own Keychain service. Sign out from **Plex Connection…** to disconnect and clear the library view.
+Choose **Connect to Plex…**, sign in through your browser, then select a server and music library. On the next launch the player restores that selection. Account credentials are stored in this app’s own Keychain service. Click the server name in the toolbar to manage the connection. Sign out from **Plex Connection…** to disconnect and clear the library view.
 
 - **Albums** opens a release in disc and track order. Use the footer’s Play button to start a selected album, or double-click a track to start there.
 - **Artists** opens an artist’s albums.
@@ -15,7 +15,9 @@ Right-click an album, artist, or track and choose **Append to Queue** or **Repla
 
 By default, Albums sorts by artist and then year, Artists by name, and Tracks by title. An artist’s albums sort by year. Opening an album from either tab lists its tracks by disc number and then track number.
 
-Start typing in any table to begin a new search in that view, or press **⌘F** to focus search. Album and track searches include artist names, and track searches also include album titles. Press **↓** to select a result, then **Return** to open or play it. Click any column header to sort and click again to reverse. Use the Columns button beside search, or right-click the tab bar or table header, to check which columns appear. Cue remembers each view’s choices. Sorting Queue changes the display order and preserves the playback sequence. Click **Year** to browse albums chronologically, including within an artist’s discography. Tracks shows the track number within its album. In Tracks, **Artist** sorts by the credited performer, using the album artist when a track has no separate credit. **Album Artist** sorts by the album-level credit. Click a breadcrumb above the table to return to that level, or press **⌘[** to go back one level. Switching tabs restores the open album or artist, search, sort, selection and scroll position. Back and breadcrumbs restore the parent view the same way. The Library menu offers album sorting and refresh. **Space** toggles playback outside text fields. Once a track is loaded, the macOS media keys and Now Playing controls can play, pause, and skip tracks while Cue is in the background. **⌘←** and **⌘→** control track navigation. The seek bar follows playback. Drag it to change position. The AirPlay picker beside Next selects the audio output. The Playback menu also offers audio output selection and Clear Queue.
+Start typing in any table to begin a new search in that view, or press **⌘F** to focus search. Album and track searches include artist names, and track searches also include album titles. Press **↓** to select a result, then **Return** to open or play it. Click any column header to sort and click again to reverse. Drag a column header left or right to reorder it. Use the Columns button beside search, or right-click the tab bar or table header, to choose which columns appear. Cue remembers column order and visibility for each view. Sorting Queue changes the display order and preserves the playback sequence. Click **Year** to browse albums chronologically, including within an artist’s discography. Tracks shows the track number within its album. In Tracks, **Artist** sorts by the credited performer, using the album artist when a track has no separate credit. **Album Artist** sorts by the album-level credit. Click a breadcrumb above the table to return to that level, or press **⌘[** to go back one level. Switching tabs restores the open album or artist, search, sort, selection and scroll position. Back and breadcrumbs restore the parent view the same way. The Library menu offers album sorting and refresh. **Space** toggles playback outside text fields. Once a track is loaded, the macOS media keys and Now Playing controls can play, pause, and skip tracks while Cue is in the background. **⌘←** and **⌘→** control track navigation. The seek bar follows playback. Drag it to change position. The AirPlay picker beside Next selects the audio output. The Playback menu also offers audio output selection and Clear Queue.
+
+To troubleshoot AirPlay, reproduce the issue, then choose **Playback → Copy AirPlay Diagnostics** and paste the report into a text editor or chat. Cue keeps the last 100 diagnostic events for the current launch. The same events appear in Console under subsystem `org.cueplayer.Minimal` and category `AirPlay`. The report records the macOS default audio output type, playback state, picker activity, and error codes.
 
 Choose **Playback → Graphic Equalizer…** (⌘E) and turn on **Enable equalizer**. Ten sliders cover 31 Hz to 16 kHz with ±12 dB per band. The center detent sets a band to zero. Toggle the checkbox to compare with the original, or choose **Reset to Flat** to zero every band. Cue remembers the curve and enable setting. The equalizer starts off on first launch.
 
@@ -57,7 +59,7 @@ The benchmark drove the AppKit search handler with successive prefixes of six te
 
 ## Build and run
 
-Open `Cue.xcodeproj`, choose the **Cue** scheme and **My Mac**, and press **⌘R**. From the project directory:
+In Xcode 26 or later, open `Cue.xcodeproj`, choose the **Cue** scheme and **My Mac**, and press **⌘R**. From the project directory:
 
 ```sh
 xcodebuild -project Cue.xcodeproj -scheme Cue -configuration Release -derivedDataPath .build build

@@ -11,10 +11,10 @@
 		10FE486431252A27D2605B21 /* SystemTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = EBA43BE1B28E11D264CCD345 /* SystemTransport.swift */; };
 		2EDA61B2AC0E4A97D41B72C5 /* Equalizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8D3C3C805B317D497B6C8747 /* Equalizer.swift */; };
 		3396772ED75F4DD2C8EC2389 /* LibraryStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9787D02FC58E3B08B296F63 /* LibraryStore.swift */; };
+		352E306389CB04B0B9C26BD7 /* AirPlayDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 78D50E6D814A533438991893 /* AirPlayDiagnostics.swift */; };
 		3F626C02A235D320B37A21DA /* EqualizerPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A46E36F95CA9AFDBE6B202B4 /* EqualizerPanel.swift */; };
 		61B31725DB00B885163D64D0 /* PlaybackTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF4A22A0F24A8F2C8987B1C4 /* PlaybackTests.swift */; };
 		65EA34A2629FDF40EE0108C6 /* Music.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4076EC21DC62F00DD4A054DE /* Music.swift */; };
-		6B01EA4056BC3DA3EBCC2AFF /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 2A4DFD40558A4DA25442A0E7 /* Assets.xcassets */; };
 		8598082A5E8BC60E9C9C0503 /* PlexClientTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E431A32713EC304AB331E6C3 /* PlexClientTests.swift */; };
 		8FD649D5C76994D44C90563B /* LibraryWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 92C2580C3D76D1DD032F83C8 /* LibraryWindow.swift */; };
 		952A8D482EF9CAA4777C5C23 /* Player.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0DE559193FF3A2603D99120 /* Player.swift */; };
@@ -24,6 +24,7 @@
 		BF5452C96850037D6D39EA08 /* TrackArtistIndex.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF58A5646281D2465ED334B2 /* TrackArtistIndex.swift */; };
 		C8563A347294C12B1FCBD220 /* EqualizerTap.c in Sources */ = {isa = PBXBuildFile; fileRef = ABD4070731116117968C6928 /* EqualizerTap.c */; };
 		C8C80FAAD74402A2ACD5C0F6 /* Credentials.swift in Sources */ = {isa = PBXBuildFile; fileRef = 088983F2D5D0AC6009245343 /* Credentials.swift */; };
+		DDC90285804283FAB842C202 /* AppIcon.icon in Resources */ = {isa = PBXBuildFile; fileRef = E9AA534F3CEDB69E959023BE /* AppIcon.icon */; };
 		F19ECFFBB0D0A35571193B7D /* playback-fixture.m4a in Resources */ = {isa = PBXBuildFile; fileRef = A4D345E570F49005B3E54A6F /* playback-fixture.m4a */; };
 /* End PBXBuildFile section */
 
@@ -40,11 +41,11 @@
 /* Begin PBXFileReference section */
 		088983F2D5D0AC6009245343 /* Credentials.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Credentials.swift; sourceTree = "<group>"; };
 		20B6FD71273196223E9A8660 /* ListeningViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ListeningViews.swift; sourceTree = "<group>"; };
-		2A4DFD40558A4DA25442A0E7 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		306198D8133DBF0BFA20C853 /* PlexClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlexClient.swift; sourceTree = "<group>"; };
 		4076EC21DC62F00DD4A054DE /* Music.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Music.swift; sourceTree = "<group>"; };
 		6E55D9E0F8198923EEBD3D31 /* Cue.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Cue.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		773294C3C7DF1B963814B658 /* ConnectionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionView.swift; sourceTree = "<group>"; };
+		78D50E6D814A533438991893 /* AirPlayDiagnostics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AirPlayDiagnostics.swift; sourceTree = "<group>"; };
 		8D3C3C805B317D497B6C8747 /* Equalizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Equalizer.swift; sourceTree = "<group>"; };
 		92C2580C3D76D1DD032F83C8 /* LibraryWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryWindow.swift; sourceTree = "<group>"; };
 		A46E36F95CA9AFDBE6B202B4 /* EqualizerPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EqualizerPanel.swift; sourceTree = "<group>"; };
@@ -58,6 +59,7 @@
 		D0DE559193FF3A2603D99120 /* Player.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Player.swift; sourceTree = "<group>"; };
 		DF58A5646281D2465ED334B2 /* TrackArtistIndex.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrackArtistIndex.swift; sourceTree = "<group>"; };
 		E431A32713EC304AB331E6C3 /* PlexClientTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlexClientTests.swift; sourceTree = "<group>"; };
+		E9AA534F3CEDB69E959023BE /* AppIcon.icon */ = {isa = PBXFileReference; lastKnownFileType = wrapper.icon; path = AppIcon.icon; sourceTree = "<group>"; };
 		EBA43BE1B28E11D264CCD345 /* SystemTransport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemTransport.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -101,7 +103,8 @@
 		F8214E45F56E40C7BEE2ABC3 /* Cue */ = {
 			isa = PBXGroup;
 			children = (
-				2A4DFD40558A4DA25442A0E7 /* Assets.xcassets */,
+				78D50E6D814A533438991893 /* AirPlayDiagnostics.swift */,
+				E9AA534F3CEDB69E959023BE /* AppIcon.icon */,
 				773294C3C7DF1B963814B658 /* ConnectionView.swift */,
 				088983F2D5D0AC6009245343 /* Credentials.swift */,
 				C9CBFA6B6C30326539006AEB /* CueApp.swift */,
@@ -211,7 +214,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				6B01EA4056BC3DA3EBCC2AFF /* Assets.xcassets in Resources */,
+				DDC90285804283FAB842C202 /* AppIcon.icon in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -231,6 +234,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				352E306389CB04B0B9C26BD7 /* AirPlayDiagnostics.swift in Sources */,
 				99F05719ADA24DC3D1303817 /* ConnectionView.swift in Sources */,
 				C8C80FAAD74402A2ACD5C0F6 /* Credentials.swift in Sources */,
 				AE2FBA63EFF888C21487D13F /* CueApp.swift in Sources */,
@@ -317,7 +321,7 @@
 				CODE_SIGN_IDENTITY = "-";
 				CODE_SIGN_STYLE = Manual;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 13;
+				CURRENT_PROJECT_VERSION = 14;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_NS_ASSERTIONS = NO;
@@ -331,7 +335,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 0.1.11;
+				MARKETING_VERSION = 0.1.12;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -417,7 +421,7 @@
 				CODE_SIGN_IDENTITY = "-";
 				CODE_SIGN_STYLE = Manual;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 13;
+				CURRENT_PROJECT_VERSION = 14;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
@@ -437,7 +441,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 0.1.11;
+				MARKETING_VERSION = 0.1.12;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;

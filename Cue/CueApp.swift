@@ -54,6 +54,7 @@ final class CueApp: NSObject, NSApplicationDelegate {
                          keyEquivalent: String(UnicodeScalar(NSRightArrowFunctionKey)!)).target = window
         playback.addItem(withTitle: "Graphic Equalizer…", action: #selector(LibraryWindow.showEqualizer), keyEquivalent: "e").target = window
         playback.addItem(withTitle: "Audio Output…", action: #selector(LibraryWindow.audioOutput), keyEquivalent: "").target = window
+        playback.addItem(withTitle: "Copy AirPlay Diagnostics", action: #selector(LibraryWindow.copyAirPlayDiagnostics), keyEquivalent: "").target = window
         playback.addItem(withTitle: "Clear Queue", action: #selector(LibraryWindow.clearQueue), keyEquivalent: "").target = window
         NSApp.mainMenu = menu
         window.showWindow(nil)

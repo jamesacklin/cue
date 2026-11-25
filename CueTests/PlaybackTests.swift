@@ -1,6 +1,7 @@
 import AppKit
 import MediaPlayer
 import AVFoundation
+import AVKit
 import XCTest
 @testable import Cue
 
@@ -25,6 +26,45 @@ final class PlaybackTests: XCTestCase {
             XCTAssertNil(result.next)
         }
         XCTAssertTrue(store.player.queue.isEmpty)
+    }
+
+    func testAirPlayDiagnosticsCapturePlaybackAndOmitSensitiveErrorDetails() async throws {
+        let store = LibraryStore()
+        let player = store.player
+        player.volume = 0
+        let controller = LibraryWindow(store: store)
+        defer { player.reset(); controller.close() }
+        let view = try XCTUnwrap(controller.window?.contentView)
+        let transport = try XCTUnwrap(view.descendants(of: Transport.self).first)
+        let picker = try XCTUnwrap(view.descendants(of: AVRoutePickerView.self).first)
+        let playbackMenu = NSApp.mainMenu?.item(withTitle: "Playback")?.submenu
+        XCTAssertEqual(playbackMenu?.item(withTitle: "Copy AirPlay Diagnostics")?.action,
+                       #selector(LibraryWindow.copyAirPlayDiagnostics))
+
+        let entries = try playbackEntries()
+        player.replace(entries, startingAt: 0)
+        try await wait { player.airPlayDiagnostics.report.contains("Playback state: playing") }
+        transport.routePickerViewWillBeginPresentingRoutes(picker)
+        transport.routePickerViewDidEndPresentingRoutes(picker)
+        let url = "https://private-server.example/file?X-Plex-Token=private-token"
+        let inner = NSError(domain: url, code: -123, userInfo: [NSLocalizedDescriptionKey: "private-device"])
+        let error = NSError(domain: NSURLErrorDomain, code: NSURLErrorTimedOut, userInfo: [
+            NSURLErrorFailingURLStringErrorKey: url,
+            NSUnderlyingErrorKey: inner
+        ])
+        player.airPlayDiagnostics.recordFailure("Fixture playback failure", error: error)
+        player.reset()
+
+        let report = player.airPlayDiagnostics.report
+        XCTAssertTrue(report.contains("Audio player created"))
+        XCTAssertTrue(report.contains("Route picker opened (transport)"))
+        XCTAssertTrue(report.contains("Route picker closed (transport)"))
+        XCTAssertTrue(report.contains("Fixture playback failure: NSURLErrorDomain (-1001)"))
+        XCTAssertTrue(report.contains("Underlying error: other domain (-123)"))
+        XCTAssertTrue(report.contains("Audio player released"))
+        for sensitive in [url, "private-device", entries[0].url.absoluteString, entries[0].track.title] {
+            XCTAssertFalse(report.contains(sensitive))
+        }
     }
 
     func testPlayingSeekingAndAutomaticAdvance() async throws {
@@ -397,6 +437,60 @@ final class PlaybackTests: XCTestCase {
         tab(3)
         XCTAssertTrue(table.tableColumns.contains { $0.title == "Disc" })
         XCTAssertEqual(defaults.stringArray(forKey: "columns.Queue")?.last, "Disc")
+    }
+
+    func testColumnOrderPersistsForEachView() throws {
+        let suite = "CueColumnOrder-" + UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        defaults.set(["Album", "Time", "Track", "Artist"], forKey: "columns.Queue")
+        let controller = LibraryWindow(store: LibraryStore(defaults: defaults))
+        controller.showWindow(nil)
+        defer { controller.close() }
+        let view = try XCTUnwrap(controller.window?.contentView)
+        let tabs = try XCTUnwrap(view.descendants(of: NSSegmentedControl.self).first)
+        let table = try XCTUnwrap(view.descendants(of: NSTableView.self).first)
+        func selectTab(_ index: Int, on control: NSSegmentedControl) {
+            control.selectedSegment = index
+            _ = control.sendAction(control.action, to: control.target)
+        }
+
+        selectTab(3, on: tabs)
+        XCTAssertTrue(table.allowsColumnReordering)
+        XCTAssertEqual(table.tableColumns.map(\.title), ["Track", "Artist", "Album", "Time"])
+        table.moveColumn(3, toColumn: 0)
+        let queueOrder = ["Time", "Track", "Artist", "Album"]
+        XCTAssertEqual(table.tableColumns.map(\.title), queueOrder)
+        XCTAssertEqual(Array(defaults.stringArray(forKey: "columnOrder.Queue")?.prefix(4) ?? []), queueOrder)
+
+        let menu = try XCTUnwrap(tabs.menu)
+        func toggleArtistColumn() throws {
+            let item = try XCTUnwrap(menu.item(withTitle: "Artist"))
+            menu.performActionForItem(at: menu.index(of: item))
+        }
+        try toggleArtistColumn()
+        XCTAssertEqual(table.tableColumns.map(\.title), ["Time", "Track", "Album"])
+        table.moveColumn(2, toColumn: 0)
+        try toggleArtistColumn()
+        let restoredOrder = ["Album", "Time", "Artist", "Track"]
+        XCTAssertEqual(table.tableColumns.map(\.title), restoredOrder)
+
+        selectTab(0, on: tabs)
+        XCTAssertEqual(table.tableColumns.map(\.title), ["Album", "Artist", "Year"])
+        table.moveColumn(2, toColumn: 0)
+        XCTAssertEqual(table.sortDescriptors.first?.key, "Artist")
+        selectTab(3, on: tabs)
+        XCTAssertEqual(table.tableColumns.map(\.title), restoredOrder)
+
+        let reopened = LibraryWindow(store: LibraryStore(defaults: defaults))
+        reopened.showWindow(nil)
+        defer { reopened.close() }
+        let reopenedView = try XCTUnwrap(reopened.window?.contentView)
+        let reopenedTabs = try XCTUnwrap(reopenedView.descendants(of: NSSegmentedControl.self).first)
+        let reopenedTable = try XCTUnwrap(reopenedView.descendants(of: NSTableView.self).first)
+        XCTAssertEqual(reopenedTable.tableColumns.map(\.title), ["Year", "Album", "Artist"])
+        selectTab(3, on: reopenedTabs)
+        XCTAssertEqual(reopenedTable.tableColumns.map(\.title), restoredOrder)
     }
 
     private func wait(_ condition: String = "playback to reach the expected state", until ready: () -> Bool) async throws {

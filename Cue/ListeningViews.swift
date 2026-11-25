@@ -6,6 +6,21 @@ extension NSColor {
     static let cuePanel = NSColor(srgbRed: 0.10, green: 0.11, blue: 0.15, alpha: 1)
 }
 
+@MainActor
+func drawWindowGradient(in view: NSView, reversed: Bool = false) {
+    let dark = view.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+    let light = NSColor(srgbRed: dark ? 0.24 : 0.93, green: dark ? 0.24 : 0.93, blue: dark ? 0.25 : 0.94, alpha: 1)
+    let deep = NSColor(srgbRed: dark ? 0.15 : 0.80, green: dark ? 0.15 : 0.80, blue: dark ? 0.16 : 0.81, alpha: 1)
+    let bounds = view.bounds
+    let top = NSPoint(x: bounds.midX, y: view.isFlipped ? bounds.minY : bounds.maxY)
+    let bottom = NSPoint(x: bounds.midX, y: view.isFlipped ? bounds.maxY : bounds.minY)
+    NSGradient(starting: light, ending: deep)?.draw(
+        from: reversed ? bottom : top,
+        to: reversed ? top : bottom,
+        options: []
+    )
+}
+
 private final class SeekSlider: NSSlider {
     private(set) var isScrubbing = false
 
@@ -37,7 +52,6 @@ final class Transport: NSStackView, @preconcurrency AVRoutePickerViewDelegate {
     init(player: Player, target: AnyObject, action: Selector) {
         self.player = player
         super.init(frame: .zero)
-        appearance = NSAppearance(named: .darkAqua)
         orientation = .vertical
         alignment = .leading
         spacing = 4
@@ -115,9 +129,13 @@ final class Transport: NSStackView, @preconcurrency AVRoutePickerViewDelegate {
     }
     required init?(coder: NSCoder) { fatalError() }
 
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        needsDisplay = true
+    }
+
     override func draw(_ dirtyRect: NSRect) {
-        NSColor.cuePanel.setFill()
-        dirtyRect.intersection(bounds).fill()
+        drawWindowGradient(in: self, reversed: true)
         super.draw(dirtyRect)
     }
 
@@ -144,19 +162,25 @@ final class Transport: NSStackView, @preconcurrency AVRoutePickerViewDelegate {
     @objc private func previous() { player.previous() }
     func routePickerViewWillBeginPresentingRoutes(_ routePickerView: AVRoutePickerView) {
         routePickerView.player = player.audio
+        player.airPlayDiagnostics.pickerOpened(routePickerView === airPlay ? "transport" : "Audio Output sheet")
     }
+
+    func routePickerViewDidEndPresentingRoutes(_ routePickerView: AVRoutePickerView) {
+        player.airPlayDiagnostics.pickerClosed(routePickerView === airPlay ? "transport" : "Audio Output sheet")
+    }
+
     @objc private func next() { player.next() }
     @objc private func scrub() { player.seek(to: seek.doubleValue) }
     @objc private func setVolume() { player.volume = volume.doubleValue }
-}
 
-@MainActor
-func showOutputPicker(for player: Player, in window: NSWindow) {
-    let alert = NSAlert()
-    alert.messageText = "Audio Output"
-    let picker = AVRoutePickerView(frame: NSRect(x: 0, y: 0, width: 38, height: 30))
-    picker.player = player.audio
-    alert.accessoryView = picker
-    alert.addButton(withTitle: "Done")
-    alert.beginSheetModal(for: window)
+    func showOutputPicker(in window: NSWindow) {
+        let alert = NSAlert()
+        alert.messageText = "Audio Output"
+        let picker = AVRoutePickerView(frame: NSRect(x: 0, y: 0, width: 38, height: 30))
+        picker.delegate = self
+        picker.player = player.audio
+        alert.accessoryView = picker
+        alert.addButton(withTitle: "Done")
+        alert.beginSheetModal(for: window)
+    }
 }
