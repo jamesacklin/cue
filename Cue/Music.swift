@@ -51,15 +51,15 @@ struct CatalogOrder: Equatable {
     let field: Field
     var ascending = true
 
-    static func standard(for catalog: Catalog) -> Self {
+    static func standard(for catalog: Catalog, withinArtist: Bool = false) -> Self {
         switch catalog {
-        case .albums: Self(field: .album)
+        case .albums: Self(field: withinArtist ? .year : .artist)
         case .artists: Self(field: .artist)
         case .tracks: Self(field: .track)
         }
     }
 
-    func plexSort(for catalog: Catalog) -> String {
+    func plexSort(for catalog: Catalog, withinArtist: Bool) -> String {
         let primary: String
         switch field {
         case .album: primary = "album.titleSort"
@@ -75,6 +75,9 @@ struct CatalogOrder: Equatable {
         case .position: preconditionFailure("Queue positions are sorted locally")
         }
         let direction = ascending ? "" : ":desc"
+        if catalog == .albums && field == .artist && !withinArtist {
+            return primary + direction + ",album.year,album.titleSort,album.id"
+        }
         var keys = [primary + direction]
         if field == .number { keys.append("track.index" + direction) }
         if field == .year || ((field == .artist || field == .albumArtist) && catalog != .artists) {

@@ -63,7 +63,8 @@ private final class FixtureProtocol: URLProtocol {
                 json = ["MediaContainer": ["totalSize": total, "offset": start, "Metadata": rows]]
                 break
             }
-            if value("type") == "9", value("sort") != "album.titleSort" {
+            if value("type") == "9", value("sort") != "album.titleSort",
+               value("sort") != "artist.titleSort,album.year,album.titleSort,album.id" {
                 let sort = value("sort") ?? ""
                 let rows: [[String: Any]] = [
                     ["ratingKey": "1", "title": "First", "parentTitle": "Zulu", "year": 2001],
@@ -74,8 +75,8 @@ private final class FixtureProtocol: URLProtocol {
                 case "album.year,album.titleSort,album.id", "album.year:desc,album.titleSort,album.id":
                     XCTAssertEqual(value("artist.id"), "44")
                     ordered = sort.hasPrefix("album.year:desc") ? rows : Array(rows.reversed())
-                case "artist.titleSort,album.titleSort", "album.titleSort:desc": ordered = Array(rows.reversed())
-                case "artist.titleSort:desc,album.titleSort": ordered = rows
+                case "album.titleSort:desc": ordered = Array(rows.reversed())
+                case "artist.titleSort:desc,album.year,album.titleSort,album.id": ordered = rows
                 default: XCTFail("Unexpected album order: \(sort)"); ordered = rows
                 }
                 json = ["MediaContainer": ["totalSize": 2, "Metadata": ordered]]
@@ -231,6 +232,22 @@ final class PlexClientTests: XCTestCase {
         let query = try XCTUnwrap(URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems)
         XCTAssertEqual(query, [URLQueryItem(name: "download", value: "0"), URLQueryItem(name: "X-Plex-Token", value: "fixture-server")])
         XCTAssertThrowsError(try server.stream(for: tracks[1]))
+    }
+
+    func testDefaultCatalogSortRequests() async throws {
+        let section = LibrarySection(key: "4", title: "Records", type: "artist")
+        let cases: [(Catalog, String?, String)] = [
+            (.albums, nil, "artist.titleSort,album.year,album.titleSort,album.id"),
+            (.artists, nil, "artist.titleSort"),
+            (.albums, "44", "album.year,album.titleSort,album.id"),
+            (.tracks, nil, "titleSort")
+        ]
+        let api = client
+        for (catalog, artistID, expected) in cases {
+            let page = try await api.page(catalog, section: section, on: server, query: "column fixture", offset: 0,
+                                          artistID: artistID)
+            XCTAssertEqual(page.rows.first?.title, expected)
+        }
     }
 
     func testOptionalColumnsRequestPlexSortAndDisplayMetadata() async throws {
@@ -434,14 +451,17 @@ final class PlexClientTests: XCTestCase {
             table.keyDown(with: event)
         }
         try await waitUntil { cell("Album")?.stringValue == "Record 1" }
+        XCTAssertEqual(table.sortDescriptors.first?.key, "Artist")
+        XCTAssertEqual(table.sortDescriptors.first?.ascending, true)
         XCTAssertEqual(table.tableColumns.filter { $0.sortDescriptorPrototype != nil }.map(\.title), ["Album", "Artist", "Year"])
-        for (key, ascending, title) in [("Artist", true, "Second"), ("Artist", false, "First"),
+        for (key, ascending, title) in [("Artist", false, "First"), ("Artist", true, "Record 1"),
                                         ("Album", false, "Second"), ("Album", true, "Record 1")] {
             table.sortDescriptors = [NSSortDescriptor(key: key, ascending: ascending)]
             try await waitUntil { cell("Album")?.stringValue == title }
         }
         switchTab(.tracks)
         try await waitUntil { cell("Track")?.stringValue == "Brass" }
+        XCTAssertEqual(table.sortDescriptors.first?.key, "Track")
         for (key, ascending, title) in [("Album", true, "Echo"), ("Album", false, "Brass"),
                                         ("Artist", false, "Echo"), ("Artist", true, "Brass")] {
             table.sortDescriptors = [NSSortDescriptor(key: key, ascending: ascending)]
@@ -457,14 +477,16 @@ final class PlexClientTests: XCTestCase {
         search.stringValue = "Band"
         controller.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: search))
         try await waitUntil { cell("Artist")?.stringValue == "The Band" }
+        XCTAssertEqual(table.sortDescriptors.first?.key, "Artist")
         openFirst()
-        try await waitUntil { cell("Album")?.stringValue == "Record 1" }
-        table.sortDescriptors = [NSSortDescriptor(key: "Year", ascending: true)]
         try await waitUntil { cell("Year")?.stringValue == "1995" }
+        XCTAssertEqual(table.sortDescriptors.first?.key, "Year")
+        XCTAssertEqual(table.sortDescriptors.first?.ascending, true)
         table.sortDescriptors = [NSSortDescriptor(key: "Year", ascending: false)]
         try await waitUntil { cell("Year")?.stringValue == "2001" }
         openFirst()
         try await waitUntil { cell("Track")?.stringValue == "Prelude" }
+        XCTAssertEqual(table.sortDescriptors.first?.key, "No.")
         let artist = try XCTUnwrap(root.descendants(of: NSButton.self).first { $0.title == "The Band" })
         artist.performClick(nil)
         try await waitUntil { cell("Year")?.stringValue == "2001" }

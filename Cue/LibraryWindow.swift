@@ -59,7 +59,7 @@ private struct Location {
     var screen: Screen
     var query = ""
     var position = TablePosition()
-    var order = CatalogOrder(field: .album)
+    var order = CatalogOrder.standard(for: .albums)
 }
 
 private final class PlacesBar: NSStackView {
@@ -267,7 +267,7 @@ final class LibraryWindow: NSWindowController, NSTableViewDataSource, NSTableVie
         configure(retry, "Retry", #selector(retryLoading))
         bar(NSStackView(views: [backButton, breadcrumbs, NSView(), status, retry]), inset: 4)
         table.style = .plain
-        table.usesAlternatingRowBackgroundColors = false
+        table.usesAlternatingRowBackgroundColors = true
         table.rowHeight = 20
         table.intercellSpacing = NSSize(width: 8, height: 1)
         table.allowsColumnReordering = false
@@ -343,8 +343,8 @@ final class LibraryWindow: NSWindowController, NSTableViewDataSource, NSTableVie
         var result = Location(screen: screen)
         if let saved = preferredOrders[screen.viewKey] {
             result.order = saved
-        } else if let kind = screen.catalogRequest?.kind {
-            result.order = .standard(for: kind)
+        } else if let request = screen.catalogRequest {
+            result.order = .standard(for: request.kind, withinArtist: request.artistID != nil)
         } else {
             if case .queue = screen { result.order = CatalogOrder(field: .position) }
             else { result.order = CatalogOrder(field: .number) }

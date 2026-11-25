@@ -301,7 +301,8 @@ struct PlexClient {
                                           filters: filters, offset: start, size: 500)
             }
         }
-        let sort = (order ?? .standard(for: kind)).plexSort(for: kind)
+        let withinArtist = artistID != nil
+        let sort = (order ?? .standard(for: kind, withinArtist: withinArtist)).plexSort(for: kind, withinArtist: withinArtist)
         var filters = [URLQueryItem(name: "type", value: kind.plexType), URLQueryItem(name: "sort", value: sort)]
         if let artistID { filters.append(URLQueryItem(name: "artist.id", value: artistID)) }
         if !query.isEmpty {

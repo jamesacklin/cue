@@ -66,27 +66,29 @@ final class PlaybackTests: XCTestCase {
         let store = LibraryStore()
         store.player.volume = 0
         let controller = LibraryWindow(store: store)
-        controller.showWindow(nil)
         defer { store.player.reset(); controller.close() }
         let view = try XCTUnwrap(controller.window?.contentView)
+        view.layoutSubtreeIfNeeded()
+        // Exercise the footer with progress enabled regardless of desktop occlusion.
+        store.player.setProgressVisible(true)
         let slider = try XCTUnwrap(view.descendants(of: NSSlider.self).first { $0.accessibilityLabel() == "Playback position" })
         store.player.replace(try playbackEntries(), startingAt: 0)
-        try await wait { slider.doubleValue > 0.2 }
+        try await wait("seek bar to show playback") { slider.doubleValue > 0.2 }
         let first = slider.doubleValue
-        try await wait { slider.doubleValue > first + 0.4 }
+        try await wait("seek bar to advance") { slider.doubleValue > first + 0.4 }
         XCTAssertTrue(slider.isEnabled)
         XCTAssertFalse(slider.isVertical)
         XCTAssertGreaterThan(slider.bounds.width, 80)
         XCTAssertEqual(slider.maxValue, 24, accuracy: 0.1)
         store.player.toggle()
-        try await wait { !store.player.playing }
+        try await wait("player to pause") { !store.player.playing }
         slider.doubleValue = 12
         XCTAssertTrue(slider.sendAction(slider.action, to: slider.target))
-        try await wait { abs(store.player.audio.currentTime().seconds - 12) < 0.15 }
+        try await wait("player to seek to 12 seconds") { abs(store.player.audio.currentTime().seconds - 12) < 0.15 }
         try await Task.sleep(for: .milliseconds(650))
         XCTAssertEqual(slider.doubleValue, 12, accuracy: 0.15)
         store.player.toggle()
-        try await wait { slider.doubleValue > 12.4 }
+        try await wait("seek bar to advance after resuming") { slider.doubleValue > 12.4 }
     }
 
     func testSpaceAndNowPlayingWhileSearchKeepsSpaces() async throws {
@@ -176,10 +178,10 @@ final class PlaybackTests: XCTestCase {
         XCTAssertEqual(defaults.stringArray(forKey: "columns.Queue")?.last, "Disc")
     }
 
-    private func wait(until ready: () -> Bool) async throws {
+    private func wait(_ condition: String = "playback to reach the expected state", until ready: () -> Bool) async throws {
         let deadline = Date().addingTimeInterval(8)
         while !ready() {
-            guard Date() < deadline else { throw MusicError("Playback did not reach the expected state.") }
+            guard Date() < deadline else { throw MusicError("Timed out waiting for \(condition).") }
             try await Task.sleep(for: .milliseconds(80))
         }
     }

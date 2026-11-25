@@ -1,6 +1,7 @@
 import AVFoundation
 import Combine
 import Foundation
+import OSLog
 
 @MainActor
 final class Player: ObservableObject {
@@ -21,10 +22,12 @@ final class Player: ObservableObject {
     private var progressVisible = true
     private var end: AnyCancellable?
     private var failure: AnyCancellable?
+    private var stall: AnyCancellable?
     private var itemStatus: NSKeyValueObservation?
     private var playStatus: NSKeyValueObservation?
     private var finished = false
     private var systemTransport: SystemTransport?
+    private let log = Logger(subsystem: "org.cueplayer.Minimal", category: "Playback")
 
     var current: QueueEntry? { index.flatMap { queue.indices.contains($0) ? queue[$0] : nil } }
     var hasNext: Bool { index.map { $0 + 1 < queue.count } ?? false }
@@ -104,6 +107,11 @@ final class Player: ObservableObject {
                 guard let self, let item, self.engine?.currentItem === item else { return }
                 self.playbackFailed()
             }
+        stall = NotificationCenter.default.publisher(for: AVPlayerItem.playbackStalledNotification, object: item)
+            .receive(on: RunLoop.main).sink { [weak self, weak item] _ in
+                guard let self, let item, self.engine?.currentItem === item else { return }
+                self.log.notice("Playback stalled while waiting for media data")
+            }
         itemStatus = item.observe(\.status, options: [.new]) { [weak self] item, _ in
             Task { @MainActor in
                 guard let self, self.engine?.currentItem === item, item.status == .failed else { return }
@@ -162,6 +170,7 @@ final class Player: ObservableObject {
         systemTransport = nil
         end = nil
         failure = nil
+        stall = nil
         itemStatus = nil
         engine?.pause()
         engine?.replaceCurrentItem(with: nil)
