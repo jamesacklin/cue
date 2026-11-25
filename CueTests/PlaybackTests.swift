@@ -357,8 +357,14 @@ final class PlaybackTests: XCTestCase {
             tabs.selectedSegment = index
             _ = tabs.sendAction(tabs.action, to: tabs.target)
         }
+        func rowIsBold(_ row: Int) -> Bool {
+            let cell = table.view(atColumn: 0, row: row, makeIfNecessary: false) as? NSTableCellView
+            return cell?.textField?.font?.fontDescriptor.symbolicTraits.contains(.bold) == true
+        }
         tab(3)
-        try await wait { table.numberOfRows == 3 }
+        try await wait { table.numberOfRows == 3 && rowIsBold(1) }
+        XCTAssertFalse(rowIsBold(0))
+        XCTAssertFalse(rowIsBold(2))
         XCTAssertEqual(table.tableColumns.map(\.title), ["Track", "Artist", "Album", "Time"])
         let menu = try XCTUnwrap(tabs.menu)
         XCTAssertTrue(menu === table.headerView?.menu)
@@ -378,11 +384,14 @@ final class PlaybackTests: XCTestCase {
         XCTAssertEqual(store.player.current?.id, entries[1].id)
         XCTAssertEqual(store.player.queue, [entries[2], entries[0], entries[1]])
         XCTAssertEqual(tabs.toolTip(forSegment: 3), "3 tracks remaining")
-        try await wait { store.player.playing }
+        try await wait { rowIsBold(0) && !rowIsBold(2) && store.player.playing }
+        XCTAssertEqual(table.selectedRow, 0)
         store.player.seek(to: 23.4)
         try await wait { table.numberOfRows == 2 && tabs.toolTip(forSegment: 3) == "2 tracks remaining" }
         XCTAssertEqual(store.player.queue, [entries[2], entries[0]])
         XCTAssertEqual(store.player.current?.id, entries[2].id)
+        XCTAssertTrue(rowIsBold(0))
+        XCTAssertFalse(rowIsBold(1))
         tab(0)
         XCTAssertNil(menu.item(withTitle: "Disc"))
         tab(3)

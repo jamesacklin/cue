@@ -230,6 +230,18 @@ final class LibraryWindow: NSWindowController, NSTableViewDataSource, NSTableVie
         store.player.$queue.map(\.count).removeDuplicates().receive(on: RunLoop.main).sink { [weak self] count in
             self?.updateQueueBadge(count)
         }.store(in: &subscriptions)
+        store.player.$current.map { $0?.id }.removeDuplicates()
+            .scan((previous: UUID?.none, current: UUID?.none)) { ($0.current, $1) }
+            .receive(on: RunLoop.main).sink { [weak self] change in
+                guard let self, case .queue = location.screen else { return }
+                let changedRows = visibleRows.filter { row in
+                    guard self.queueIndices.indices.contains(row) else { return false }
+                    let id = self.displayedQueue[self.queueIndices[row]].id
+                    return id == change.previous || id == change.current
+                }
+                guard !changedRows.isEmpty else { return }
+                table.reloadData(forRowIndexes: IndexSet(changedRows), columnIndexes: IndexSet(integersIn: 0..<table.numberOfColumns))
+            }.store(in: &subscriptions)
         selectTab(0)
     }
     required init?(coder: NSCoder) { fatalError() }
@@ -725,7 +737,9 @@ final class LibraryWindow: NSWindowController, NSTableViewDataSource, NSTableVie
         let value = row(at: index)?.text(for: kind, position: position)
             ?? (column == table.tableColumns.first?.identifier ? "Loading…" : "")
         let numeric = key == "Time" || key == "Year" || key == "No." || kind == .disc || kind == .position
-        field.font = numeric ? .monospacedDigitSystemFont(ofSize: 12, weight: .regular) : .systemFont(ofSize: 12)
+        let isCurrent = queueIndices.indices.contains(index) && displayedQueue[position].id == store.player.current?.id
+        let weight: NSFont.Weight = isCurrent ? .bold : .regular
+        field.font = numeric ? .monospacedDigitSystemFont(ofSize: 12, weight: weight) : .systemFont(ofSize: 12, weight: weight)
         field.textColor = numeric ? .secondaryLabelColor : .labelColor
         field.stringValue = value
         return cell
