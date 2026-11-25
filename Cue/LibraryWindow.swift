@@ -53,6 +53,7 @@ private struct TablePosition {
     var firstRow = 0
     var origin: NSPoint?
     var selectedRow = -1
+    var queueSelection = Set<UUID>()
 }
 
 private struct Location {
@@ -111,7 +112,31 @@ private final class MusicTable: NSTableView {
     var openSelection: (() -> Void)?
     weak var searchField: NSSearchField?
 
+    var deleteSelection: (() -> Void)?
+
+    private func toggleControlClick(_ event: NSEvent) -> Bool {
+        guard allowsMultipleSelection, event.modifierFlags.contains(.control) else { return false }
+        let row = row(at: convert(event.locationInWindow, from: nil))
+        guard row >= 0 else { return false }
+        window?.makeFirstResponder(self)
+        if selectedRowIndexes.contains(row) { deselectRow(row) }
+        else { selectRowIndexes(IndexSet(integer: row), byExtendingSelection: true) }
+        return true
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        if !toggleControlClick(event) { super.mouseDown(with: event) }
+    }
+
+    override func rightMouseDown(with event: NSEvent) {
+        if !toggleControlClick(event) { super.rightMouseDown(with: event) }
+    }
+
     override func keyDown(with event: NSEvent) {
+        if allowsMultipleSelection, event.keyCode == 51 || event.keyCode == 117 {
+            if !event.isARepeat { deleteSelection?() }
+            return
+        }
         if event.keyCode == 36 || event.keyCode == 76 {
             openSelection?()
             return
@@ -151,6 +176,8 @@ final class LibraryWindow: NSWindowController, NSTableViewDataSource, NSTableVie
     private var savedTabs: [Int: [Location]] = [:]
     private var rows: [MusicRow] = []
     private var albumTracks: [Track]?
+    private static let queueDragType = NSPasteboard.PasteboardType("org.cueplayer.queue-entry")
+    private var displayedQueue: [QueueEntry] = []
     private var queueIndices: [Int] = []
     private var loading = false
     private var catalog = CatalogRows()
@@ -184,7 +211,9 @@ final class LibraryWindow: NSWindowController, NSTableViewDataSource, NSTableVie
             self?.presentConnection(show)
         }.store(in: &subscriptions)
         store.player.$queue.dropFirst().receive(on: RunLoop.main).sink { [weak self] _ in
-            if case .queue = self?.location.screen { self?.reload() }
+            guard let self, case .queue = location.screen, displayedQueue != self.store.player.queue else { return }
+            location = currentLocation()
+            reload()
         }.store(in: &subscriptions)
         store.player.$index.removeDuplicates().receive(on: RunLoop.main).sink { [weak self] _ in
             if case .queue = self?.location.screen { self?.table.reloadData() }
@@ -276,6 +305,13 @@ final class LibraryWindow: NSWindowController, NSTableViewDataSource, NSTableVie
         table.delegate = self
         table.target = self
         table.doubleAction = #selector(doubleClick)
+        table.registerForDraggedTypes([Self.queueDragType])
+        table.setDraggingSourceOperationMask(.move, forLocal: true)
+        table.setDraggingSourceOperationMask([], forLocal: false)
+        table.deleteSelection = { [weak self] in
+            guard let self, !loading, case .queue = location.screen else { return }
+            store.player.removeQueuedEntries(selectedQueueIDs)
+        }
         table.searchField = search
         table.openSelection = { [weak self] in self?.act() }
         let scroll = NSScrollView()
@@ -329,7 +365,7 @@ final class LibraryWindow: NSWindowController, NSTableViewDataSource, NSTableVie
         var result = location
         if !loading, table.numberOfRows > 0, let clip = table.enclosingScrollView?.contentView {
             result.position = TablePosition(firstRow: visibleRows.lowerBound, origin: clip.bounds.origin,
-                                            selectedRow: table.selectedRow)
+                                            selectedRow: table.selectedRow, queueSelection: selectedQueueIDs)
         }
         return result
     }
@@ -389,6 +425,8 @@ final class LibraryWindow: NSWindowController, NSTableViewDataSource, NSTableVie
     private func navigate(_ newLocation: Location) {
         loading = true
         location = newLocation
+        if case .queue = location.screen { table.allowsMultipleSelection = true }
+        else { table.allowsMultipleSelection = false }
         preferredOrders[location.screen.viewKey] = location.order
         albumTracks = nil
         search.stringValue = location.query
@@ -459,6 +497,7 @@ final class LibraryWindow: NSWindowController, NSTableViewDataSource, NSTableVie
         catalog = CatalogRows()
         rows = []
         queueIndices = []
+        displayedQueue = []
         table.deselectAll(nil)
         table.reloadData()
         updateActions()
@@ -472,6 +511,7 @@ final class LibraryWindow: NSWindowController, NSTableViewDataSource, NSTableVie
                 if debounce { try await Task.sleep(for: .milliseconds(200)) }
                 let page: CatalogPage
                 var positions: [Int] = []
+                var queueSnapshot: [QueueEntry] = []
                 switch request.screen {
                 case .catalog(let kind):
                     page = try await store.catalog(kind, query: request.query, offset: request.position.firstRow, artistID: nil, order: request.order)
@@ -488,6 +528,7 @@ final class LibraryWindow: NSWindowController, NSTableViewDataSource, NSTableVie
                     page = CatalogPage(rows: visible, total: visible.count, next: nil)
                 case .queue:
                     let queue = store.player.queue
+                    queueSnapshot = queue
                     positions = request.order.sortedTrackIndices(count: queue.count, matching: request.query) {
                         (queue[$0].track, queue[$0].album)
                     }
@@ -496,6 +537,7 @@ final class LibraryWindow: NSWindowController, NSTableViewDataSource, NSTableVie
                 }
                 try Task.checkCancellation()
                 guard revision == store.revision else { return }
+                displayedQueue = queueSnapshot
                 queueIndices = positions
                 if request.screen.catalogRequest != nil {
                     let offset = request.position.firstRow
@@ -523,7 +565,10 @@ final class LibraryWindow: NSWindowController, NSTableViewDataSource, NSTableVie
     }
 
     private func restorePosition(_ position: TablePosition) {
-        if (0..<table.numberOfRows).contains(position.selectedRow) {
+        if case .queue = location.screen {
+            let selection = queueIndices.indices.filter { position.queueSelection.contains(displayedQueue[queueIndices[$0]].id) }
+            table.selectRowIndexes(IndexSet(selection), byExtendingSelection: false)
+        } else if (0..<table.numberOfRows).contains(position.selectedRow) {
             table.selectRowIndexes(IndexSet(integer: position.selectedRow), byExtendingSelection: false)
         }
         guard let origin = position.origin, let scroll = table.enclosingScrollView else {
@@ -644,6 +689,52 @@ final class LibraryWindow: NSWindowController, NSTableViewDataSource, NSTableVie
         field.stringValue = value
         return cell
     }
+    private var selectedQueueIDs: Set<UUID> {
+        Set(table.selectedRowIndexes.compactMap { row in
+            queueIndices.indices.contains(row) ? displayedQueue[queueIndices[row]].id : nil
+        })
+    }
+
+    func tableView(_ tableView: NSTableView, pasteboardWriterForRow row: Int) -> NSPasteboardWriting? {
+        guard case .queue = location.screen, queueIndices.indices.contains(row) else { return nil }
+        let item = NSPasteboardItem()
+        item.setString(displayedQueue[queueIndices[row]].id.uuidString, forType: Self.queueDragType)
+        return item
+    }
+
+    func tableView(_ tableView: NSTableView, validateDrop info: NSDraggingInfo, proposedRow row: Int,
+                   proposedDropOperation operation: NSTableView.DropOperation) -> NSDragOperation {
+        guard case .queue = location.screen, !loading, info.draggingSource as? NSTableView === table,
+              (0...queueIndices.count).contains(row) else { return [] }
+        table.setDropRow(row, dropOperation: .above)
+        return .move
+    }
+
+    func tableView(_ tableView: NSTableView, acceptDrop info: NSDraggingInfo, row: Int,
+                   dropOperation: NSTableView.DropOperation) -> Bool {
+        guard info.draggingSource as? NSTableView === table, dropOperation == .above else { return false }
+        let ids = info.draggingPasteboard.pasteboardItems?.compactMap {
+            $0.string(forType: Self.queueDragType).flatMap(UUID.init(uuidString:))
+        } ?? []
+        return moveQueueSelection(Set(ids), above: row)
+    }
+
+    func moveQueueSelection(_ selection: Set<UUID>, above row: Int) -> Bool {
+        guard case .queue = location.screen, !loading, !selection.isEmpty,
+              displayedQueue == store.player.queue, (0...queueIndices.count).contains(row) else { return false }
+        let ordered = queueIndices.map { displayedQueue[$0].id }.filter(selection.contains)
+        guard ordered.count == selection.count, let last = queueIndices.last else { return false }
+        let boundary = row < queueIndices.count ? queueIndices[row] : last + 1
+        location = currentLocation()
+        location.position.queueSelection = selection
+        location.order = CatalogOrder(field: .position)
+        preferredOrders[location.screen.viewKey] = location.order
+        syncSortHeader()
+        store.player.moveQueuedEntries(ordered, to: boundary)
+        reload()
+        return true
+    }
+
     func tableViewSelectionDidChange(_ notification: Notification) { updateActions() }
     func controlTextDidChange(_ obj: Notification) {
         let query = search.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -726,10 +817,12 @@ final class LibraryWindow: NSWindowController, NSTableViewDataSource, NSTableVie
 
     @objc func audioOutput() { if let window { showOutputPicker(for: store.player, in: window) } }
     @objc func clearQueue() { store.clearQueue() }
-    @objc private func doubleClick() { if table.clickedRow >= 0 { act() } }
-    @objc private func act() {
+    @objc private func doubleClick() {
+        if table.clickedRow >= 0 { act(at: table.clickedRow) }
+    }
+    private func act() { act(at: table.selectedRow) }
+    private func act(at index: Int) {
         guard !loading else { return }
-        let index = table.selectedRow
         if case .album(let album) = location.screen, index < 0,
            let tracks = albumTracks, let first = tracks.first(where: { $0.part != nil }) {
             store.play(tracks, from: first.id, album: album)
@@ -740,8 +833,10 @@ final class LibraryWindow: NSWindowController, NSTableViewDataSource, NSTableVie
         case .artist(let id, let name, _): open(.artist(id: id, name: name))
         case .album(let album): open(.album(album))
         case .track(let track, let album):
-            if case .queue = location.screen { store.selectQueuedTrack(queueIndices[index]) }
-            else if let albumTracks { store.play(albumTracks, from: track.id, album: album) }
+            if case .queue = location.screen {
+                let id = displayedQueue[queueIndices[index]].id
+                if let position = store.player.queue.firstIndex(where: { $0.id == id }) { store.selectQueuedTrack(position) }
+            } else if let albumTracks { store.play(albumTracks, from: track.id, album: album) }
             else if !album.id.isEmpty { store.playAlbum(album, startingAt: track.id) }
             else { store.play([track], from: track.id, album: album) }
         }

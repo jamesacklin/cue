@@ -9,7 +9,7 @@ Choose **Connect to Plex…**, sign in through your browser, then select a serve
 - **Albums** opens a release in disc and track order. Use the footer’s Play button to start a selected album, or double-click a track to start there.
 - **Artists** opens an artist’s albums.
 - **Tracks** searches across the selected music library. Playing a result queues its album at that track.
-- **Queue** shows the current album queue and emphasizes the current track. Double-click an entry to jump to it.
+- **Queue** shows the current album queue and emphasizes the current track. Double-click an entry to jump to it. Shift-click selects a range. Control-click or Command-click toggles individual entries. Drag the selection between rows to move it in playback order, or press Backspace or Forward Delete to remove it. A drag from a sorted view returns Queue to playback order and keeps the search filter.
 
 By default, Albums sorts by artist and then year, Artists by name, and Tracks by title. An artist’s albums sort by year. Opening an album from either tab lists its tracks by disc number and then track number.
 

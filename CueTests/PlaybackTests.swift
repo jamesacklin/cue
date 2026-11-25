@@ -240,6 +240,76 @@ final class PlaybackTests: XCTestCase {
         XCTAssertFalse(remote.togglePlayPauseCommand.isEnabled)
     }
 
+    func testQueueEditsPreservePlaybackAndAdvanceInNewOrder() async throws {
+        let player = Player()
+        player.volume = 0
+        defer { player.reset() }
+        // The same Plex track may occur more than once in the queue.
+        let entries = try playbackEntries() + playbackEntries()
+        player.replace(entries, startingAt: 1)
+        try await wait { player.playing && player.elapsed > 0 }
+        let item = player.audio.currentItem
+        player.moveQueuedEntries([entries[1].id, entries[3].id], to: 0)
+        XCTAssertEqual(player.queue, [entries[1], entries[3], entries[0], entries[2]])
+        XCTAssertTrue(player.audio.currentItem === item)
+        XCTAssertEqual(player.index, 0)
+        player.seek(to: 23.4)
+        try await wait { player.current?.id == entries[3].id }
+        player.removeQueuedEntries([entries[1].id, entries[3].id])
+        try await wait { player.playing && player.current?.id == entries[0].id }
+        player.pause()
+        try await wait { !player.playing }
+        player.removeQueuedEntries([entries[0].id])
+        XCTAssertEqual(player.current?.id, entries[2].id)
+        XCTAssertEqual(player.audio.rate, 0)
+        player.removeQueuedEntries([entries[2].id])
+        XCTAssertTrue(player.queue.isEmpty)
+        XCTAssertNil(player.routePlayer.value)
+    }
+
+    func testQueueTableMovesSelectionAndHandlesBothDeleteKeys() async throws {
+        let store = LibraryStore()
+        let entries = try playbackEntries() + playbackEntries()
+        store.player.volume = 0
+        store.player.replace(entries, startingAt: 0)
+        let controller = LibraryWindow(store: store)
+        controller.showWindow(nil)
+        defer { store.player.reset(); controller.close() }
+        let window = try XCTUnwrap(controller.window)
+        let view = try XCTUnwrap(window.contentView)
+        let table = try XCTUnwrap(view.descendants(of: NSTableView.self).first)
+        let tabs = try XCTUnwrap(view.descendants(of: NSSegmentedControl.self).first)
+        tabs.selectedSegment = 3
+        _ = tabs.sendAction(tabs.action, to: tabs.target)
+        try await wait { table.numberOfRows == 4 }
+        XCTAssertTrue(table.allowsMultipleSelection)
+        table.sortDescriptors = [NSSortDescriptor(key: "Track", ascending: false)]
+        try await wait { table.numberOfRows == 4 }
+        table.selectRowIndexes(IndexSet(integer: 0), byExtendingSelection: false)
+        let rect = table.rect(ofRow: 1)
+        let point = table.convert(NSPoint(x: 20, y: rect.midY), to: nil)
+        let click = try XCTUnwrap(NSEvent.mouseEvent(with: .leftMouseDown, location: point,
+                                    modifierFlags: .control, timestamp: 0, windowNumber: window.windowNumber,
+                                    context: nil, eventNumber: 1, clickCount: 1, pressure: 1))
+        window.sendEvent(click)
+        XCTAssertEqual(table.selectedRowIndexes, IndexSet([0, 1]))
+        XCTAssertTrue(controller.moveQueueSelection([entries[1].id, entries[3].id], above: 2))
+        try await wait { table.numberOfRows == 4 && table.selectedRowIndexes == IndexSet([0, 1]) }
+        XCTAssertEqual(store.player.queue, [entries[1], entries[3], entries[0], entries[2]])
+        func pressDelete(_ code: UInt16, _ character: String) throws {
+            window.sendEvent(try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero,
+                modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber, context: nil,
+                characters: character, charactersIgnoringModifiers: character, isARepeat: false, keyCode: code)))
+        }
+        try pressDelete(51, "\u{7f}")
+        try await wait { table.numberOfRows == 2 }
+        XCTAssertEqual(store.player.queue, [entries[0], entries[2]])
+        table.selectRowIndexes(IndexSet(integer: 0), byExtendingSelection: false)
+        try pressDelete(117, "\u{f728}")
+        try await wait { table.numberOfRows == 1 }
+        XCTAssertEqual(store.player.queue, [entries[2]])
+    }
+
     func testSortedQueueKeepsIdentityAndRemembersColumnChoices() async throws {
         let suite = "CueQueueColumns-" + UUID().uuidString
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))

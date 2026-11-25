@@ -92,7 +92,37 @@ final class Player: ObservableObject {
         select(index)
     }
 
-    func select(_ position: Int) {
+    func moveQueuedEntries(_ ids: [UUID], to boundary: Int) {
+        guard let currentID = current?.id, (0...queue.count).contains(boundary), !ids.isEmpty else { return }
+        let selected = Set(ids)
+        let entries = Dictionary(uniqueKeysWithValues: queue.filter { selected.contains($0.id) }.map { ($0.id, $0) })
+        guard entries.count == ids.count else { return }
+        let insertion = queue.prefix(boundary).filter { !selected.contains($0.id) }.count
+        var reordered = queue.filter { !selected.contains($0.id) }
+        reordered.insert(contentsOf: ids.compactMap { entries[$0] }, at: insertion)
+        guard reordered != queue else { return }
+        queue = reordered
+        index = reordered.firstIndex { $0.id == currentID }
+        updateSystemTransport()
+    }
+
+    func removeQueuedEntries(_ ids: Set<UUID>) {
+        guard let index, let currentID = current?.id, !ids.isEmpty else { return }
+        let remaining = queue.filter { !ids.contains($0.id) }
+        guard remaining.count < queue.count else { return }
+        guard !remaining.isEmpty else { reset(); return }
+        let successor = queue.prefix(index).filter { !ids.contains($0.id) }.count
+        let resume = engine?.timeControlStatus != .paused && successor < remaining.count
+        queue = remaining
+        if let position = remaining.firstIndex(where: { $0.id == currentID }) {
+            self.index = position
+            updateSystemTransport()
+        } else {
+            select(min(successor, remaining.count - 1), autoplay: resume)
+        }
+    }
+
+    func select(_ position: Int, autoplay: Bool = true) {
         guard queue.indices.contains(position) else { return }
         let entry = queue[position]
         index = position
@@ -105,7 +135,7 @@ final class Player: ObservableObject {
         end = NotificationCenter.default.publisher(for: .AVPlayerItemDidPlayToEndTime, object: item)
             .receive(on: RunLoop.main).sink { [weak self, weak item] _ in
                 guard let self, let item, self.engine?.currentItem === item else { return }
-                if self.hasNext { self.select(position + 1) }
+                if self.hasNext { self.next() }
                 else { self.finished = true; self.audio.pause() }
             }
         failure = NotificationCenter.default.publisher(for: .AVPlayerItemFailedToPlayToEndTime, object: item)
@@ -127,7 +157,7 @@ final class Player: ObservableObject {
         equalizer.attach(to: item)
         audio.replaceCurrentItem(with: item)
         if systemTransport == nil { systemTransport = SystemTransport(player: self) }
-        audio.play()
+        if autoplay { audio.play() } else { audio.pause() }
         updateSystemTransport(position: 0)
     }
 
