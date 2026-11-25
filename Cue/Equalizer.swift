@@ -41,7 +41,9 @@ final class Equalizer {
 
     func setGain(_ value: Double, band: Int) {
         guard gains.indices.contains(band), value.isFinite else { return }
-        gains[band] = min(12, max(-12, value))
+        let gain = min(12, max(-12, value))
+        guard gains[band] != gain else { return }
+        gains[band] = gain
         defaults.set(gains, forKey: "equalizer.gains")
         if let tap, enabled { CueEQSetGain(tap, UInt32(band), Float(gains[band])) }
     }

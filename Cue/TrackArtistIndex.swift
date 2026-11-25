@@ -16,6 +16,7 @@ actor TrackArtistIndex {
         }
         db = handle
         let result = sqlite3_create_collation(handle, "artistList", SQLITE_UTF8, nil) { _, n, a, m, b in
+            if n == m, let a, let b, memcmp(a, b, Int(n)) == 0 { return 0 }
             let left = String(decoding: UnsafeRawBufferPointer(start: a, count: Int(n)), as: UTF8.self)
             let right = String(decoding: UnsafeRawBufferPointer(start: b, count: Int(m)), as: UTF8.self)
             return Int32(left.localizedStandardCompare(right).rawValue)

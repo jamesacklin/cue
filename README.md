@@ -29,6 +29,21 @@ The library browser requests 50 rows at a time and asks Plex for the fields need
 
 In the initial text-only release (91be935), three fresh launches of the six-album sample on Apple silicon with macOS 26.5.2 measured 27, 29 and 30 MB of physical footprint. The baseline shelf measured 39, 40 and 40 MB. Measurements used `footprint -p PID` five seconds after launch, with playback stopped and account restoration skipped in the baseline. These figures describe the app process on this machine.
 
+### Queue and equalizer measurements
+
+On an Apple M1 with macOS 26.5.2, opening a paused queue of 100,000 tracks used **17.9 MiB less memory** and made the first cell available **20 ms sooner**. The table uses playback order directly and resolves metadata as cells appear. Custom local sorts and searches run off the main thread. Back and tab navigation can reuse the last catalog viewport. Refresh clears it.
+
+| Median of three fresh Release launches per build | Before (`65d6973`) | After |
+| --- | ---: | ---: |
+| Idle, disconnected window | 41.2 MiB | 41.4 MiB |
+| Playing one local AAC track, Albums open | 45.5 MiB | 45.5 MiB |
+| Paused, Queue open | 92.3 MiB | 74.3 MiB |
+| Queue tab selection to first available cell | 63.4 ms | 43.2 ms |
+
+Both builds used the same startup driver, window, synthetic track metadata and bundled AAC test fixture. The driver played at zero volume, paused, selected Queue and requested its first cell. Physical footprint was sampled with `footprint --noCategories -f bytes -p PID` after each phase settled. Three additional launches per build played just the fixture with the equalizer off. Across six-second samples, median playback CPU was 1.7% of one core before and 1.8% after.
+
+In a separate test of the equalizer's audio callback, processing 5.12 million interleaved stereo frames in 1,024-frame buffers at 96 kHz took 129.7 ms before and 92.8 ms after with all ten bands active. Both versions produced matching PCM checksums in additional mono, stereo and six-channel runs covering gain changes, bypass and stream resets.
+
 ### FLAC playback and scrubbing
 
 **Cue 0.1.6 stayed under 70 MB of app memory in these tests on an 8 GB Apple M1 Mac running macOS 26.5.2.** The highest peak while streaming from Plex was **66.3 MB (63.3 MiB)**. The highest peak across all eight runs was **68.7 MB (65.5 MiB)** while streaming a generated FLAC over local HTTP.

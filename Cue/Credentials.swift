@@ -10,6 +10,9 @@ struct Credentials {
          kSecAttrAccount as String: "plex-account"]
     }
 
+    @concurrent
+    func readForRestoration() async throws -> String? { try read() }
+
     func read() throws -> String? {
         var search = query
         search[kSecReturnData as String] = true

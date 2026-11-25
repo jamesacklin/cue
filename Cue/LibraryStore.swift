@@ -27,7 +27,8 @@ final class LibraryStore: ObservableObject {
     @Published var showConnection = false
     @Published private(set) var revision = 0
 
-    let client: PlexClient
+    private lazy var client = PlexClient(identifier: clientID)
+    private let clientID: String
     let player: Player
     private let log = Logger(subsystem: "org.cueplayer.Minimal", category: "PlexConnection")
     private var token: String?
@@ -40,22 +41,27 @@ final class LibraryStore: ObservableObject {
     init(client: PlexClient? = nil, defaults: UserDefaults = .standard) {
         self.defaults = defaults
         player = Player(defaults: defaults)
-        let id = defaults.string(forKey: "clientID") ?? UUID().uuidString
-        defaults.set(id, forKey: "clientID")
-        self.client = client ?? PlexClient(identifier: id)
+        if let saved = defaults.string(forKey: "clientID") { clientID = saved }
+        else {
+            clientID = UUID().uuidString
+            defaults.set(clientID, forKey: "clientID")
+        }
+        if let client { self.client = client }
     }
 
     func restore() {
         guard !didRestore else { return }
         didRestore = true
-        do {
-            token = try Credentials.plex.read()
-            signedIn = token != nil
+        perform("Restoring account…") { [self] in
+            let saved = try await Credentials.plex.readForRestoration()
+            try Task.checkCancellation()
+            token = saved
+            signedIn = saved != nil
             log.notice("Restored account credential: \(self.signedIn, privacy: .public)")
-            if signedIn { discover(restoreSelection: true) }
-        } catch {
-            connectionError = error.localizedDescription
-            showConnection = true
+            if signedIn {
+                activity = "Finding servers…"
+                try await loadResources(restoreSelection: true)
+            }
         }
     }
 
@@ -219,7 +225,7 @@ final class LibraryStore: ObservableObject {
             queueRequests.removeFirst()
             loadQueueRequests()
         }
-        player.select(index)
+        player.select(index - player.queue.startIndex)
     }
 
     func enqueue(_ row: MusicRow, action: QueueAction, albumTracks: [Track]? = nil) {
@@ -240,7 +246,7 @@ final class LibraryStore: ObservableObject {
         queueJob = Task {
             while let request = queueRequests.first {
                 do {
-                    let (entries, index) = try await queueEntries(for: request, on: server, in: section)
+                    let (entries, index) = try await Self.queueEntries(for: request, on: server, in: section, client: client)
                     try Task.checkCancellation()
                     if request.action == .append { player.append(entries) }
                     else { player.replace(entries, startingAt: index) }
@@ -254,9 +260,12 @@ final class LibraryStore: ObservableObject {
         }
     }
 
-    private func queueEntries(for request: QueueRequest, on server: PlexServer, in section: LibrarySection) async throws -> ([QueueEntry], Int) {
-        func entries(_ tracks: [Track], album: Album) -> [QueueEntry] {
-            tracks.compactMap { track in
+    @concurrent
+    private static func queueEntries(for request: QueueRequest, on server: PlexServer, in section: LibrarySection,
+                                     client: PlexClient) async throws -> ([QueueEntry], Int) {
+        func entries(_ tracks: [Track], album: Album) throws -> [QueueEntry] {
+            try tracks.compactMap { track in
+                try Task.checkCancellation()
                 guard let url = try? server.stream(for: track) else { return nil }
                 return QueueEntry(track: track, album: album, url: url)
             }
@@ -269,7 +278,7 @@ final class LibraryStore: ObservableObject {
             if request.action == .append || album.id.isEmpty { tracks = [track] }
             else if let cached = request.albumTracks { tracks = cached }
             else { tracks = try await client.tracks(album: album, on: server) }
-            result = entries(tracks, album: album)
+            result = try entries(tracks, album: album)
             guard let index = result.firstIndex(where: { $0.track.id == track.id }) else {
                 throw MusicError("There is no playable file for this track.")
             }
@@ -278,7 +287,7 @@ final class LibraryStore: ObservableObject {
             let tracks: [Track]
             if let cached = request.albumTracks { tracks = cached }
             else { tracks = try await client.tracks(album: album, on: server) }
-            result = entries(tracks, album: album)
+            result = try entries(tracks, album: album)
         case .artist(let id, _, _):
             var offset = 0
             var seen = Set<String>()
@@ -287,7 +296,7 @@ final class LibraryStore: ObservableObject {
                 let count = seen.count
                 for case .album(let album) in page.rows where seen.insert(album.id).inserted {
                     let tracks = try await client.tracks(album: album, on: server)
-                    result.append(contentsOf: entries(tracks, album: album))
+                    result.append(contentsOf: try entries(tracks, album: album))
                 }
                 guard let next = page.next, seen.count > count else { break }
                 offset = next

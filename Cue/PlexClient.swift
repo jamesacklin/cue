@@ -271,13 +271,21 @@ struct PlexClient {
 
     private func metadata(_ request: URLRequest, kind: Catalog) async throws -> MetadataPage<MusicMetadata> {
         let data = try await responseData(request)
-        if let page = try? JSONDecoder().decode(PlexEnvelope<MetadataPage<MusicMetadata>>.self, from: data) {
+        try Task.checkCancellation()
+        if data.first(where: { ![9, 10, 13, 32].contains($0) }) == UInt8(ascii: "<") {
+            // Some servers return XML even when the request asks for JSON.
+            if let page = try? xmlMetadata(data, kind: kind) { return page }
+        } else if let page = try? JSONDecoder().decode(PlexEnvelope<MetadataPage<MusicMetadata>>.self, from: data) {
             return page.MediaContainer
         }
-        // Some servers have library entries that cannot be serialized as valid JSON.
+        try Task.checkCancellation()
         var xmlRequest = request
         xmlRequest.setValue("application/xml", forHTTPHeaderField: "Accept")
-        let document = try XMLDocument(data: await responseData(xmlRequest), options: .nodeLoadExternalEntitiesNever)
+        return try xmlMetadata(await responseData(xmlRequest), kind: kind)
+    }
+
+    private func xmlMetadata(_ data: Data, kind: Catalog) throws -> MetadataPage<MusicMetadata> {
+        let document = try XMLDocument(data: data, options: .nodeLoadExternalEntitiesNever)
         guard let root = document.rootElement(), root.name == "MediaContainer" else {
             throw MusicError("Plex returned an unreadable list.")
         }
@@ -350,7 +358,10 @@ struct PlexClient {
         // Older endpoints may ignore pagination and return the complete list.
         let start = result.offset ?? (batch.count > size ? 0 : offset)
         guard start <= offset else { throw MusicError("Plex skipped part of this listing. Refresh and try again.") }
-        let slice = batch.dropFirst(offset - start).prefix(size)
+        let available = batch.dropFirst(offset - start)
+        // Album playback consumes the whole list. Keep all children already delivered by
+        // servers that ignore the requested page size.
+        let slice = parent == nil ? available.prefix(size) : available
         let end = offset + slice.count
         let total = result.totalSize ?? (batch.count > size ? start + batch.count : nil)
         let more = !slice.isEmpty && (total.map { end < $0 } ?? (slice.count == size))
@@ -369,6 +380,7 @@ struct PlexClient {
             guard let next = page.next, tracks.count > count else { break }
             offset = next
         }
-        return tracks.sorted { ($0.disc, $0.number) < ($1.disc, $1.number) }
+        tracks.sort { ($0.disc, $0.number) < ($1.disc, $1.number) }
+        return tracks
     }
 }

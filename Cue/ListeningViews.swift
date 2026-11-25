@@ -45,8 +45,9 @@ final class Transport: NSStackView, @preconcurrency AVRoutePickerViewDelegate {
     private let playImage = NSImage(systemSymbolName: "play.fill", accessibilityDescription: nil)
     private let pauseImage = NSImage(systemSymbolName: "pause.fill", accessibilityDescription: nil)
     var canStartSelection = false {
-        didSet { playButton.isEnabled = player.current != nil || canStartSelection }
+        didSet { if oldValue != canStartSelection { playButton.isEnabled = player.current != nil || canStartSelection } }
     }
+    private var displayedSeconds: (elapsed: Int, length: Int)?
     private var subscriptions = Set<AnyCancellable>()
 
     init(player: Player, target: AnyObject, action: Selector) {
@@ -122,10 +123,21 @@ final class Transport: NSStackView, @preconcurrency AVRoutePickerViewDelegate {
         Publishers.CombineLatest(player.$elapsed, player.$length)
             .sink { [weak self] elapsed, length in self?.renderTime(elapsed, length) }
             .store(in: &subscriptions)
-        Publishers.CombineLatest4(player.$queue, player.$current, player.$playing, player.$error)
-            .sink { [weak self] queue, current, playing, error in
-                self?.render(current, playing: playing, error: error, hasNext: queue.contains { $0.id != current?.id })
+        Publishers.CombineLatest3(player.$current, player.$playing.removeDuplicates(), player.$error.removeDuplicates())
+            .sink { [weak self] current, playing, error in
+                self?.render(current, playing: playing, error: error)
             }.store(in: &subscriptions)
+        let queueSummary = player.$queue.map { queue in
+            (count: queue.count, firstID: queue.first?.id)
+        }
+        let currentID = player.$current.map { $0?.id }
+        queueSummary.combineLatest(currentID)
+            .map { summary, id -> Bool in
+                summary.count > 1 || (summary.count == 1 && summary.firstID != id)
+            }
+            .removeDuplicates()
+            .sink { [weak self] enabled in self?.nextButton.isEnabled = enabled }
+            .store(in: &subscriptions)
     }
     required init?(coder: NSCoder) { fatalError() }
 
@@ -139,7 +151,7 @@ final class Transport: NSStackView, @preconcurrency AVRoutePickerViewDelegate {
         super.draw(dirtyRect)
     }
 
-    private func render(_ current: QueueEntry?, playing: Bool, error: String?, hasNext: Bool) {
+    private func render(_ current: QueueEntry?, playing: Bool, error: String?) {
         title.stringValue = error ?? current.map { "\($0.track.artist) — \($0.track.title)" } ?? "Stopped"
         title.toolTip = title.stringValue
         let action = playing ? "Pause" : "Play"
@@ -148,7 +160,6 @@ final class Transport: NSStackView, @preconcurrency AVRoutePickerViewDelegate {
         playButton.setAccessibilityLabel(action)
         previousButton.isEnabled = current != nil
         playButton.isEnabled = current != nil || canStartSelection
-        nextButton.isEnabled = hasNext
     }
 
     private func renderTime(_ elapsed: Double, _ length: Double) {
@@ -156,8 +167,10 @@ final class Transport: NSStackView, @preconcurrency AVRoutePickerViewDelegate {
         if seek.maxValue != maximum { seek.maxValue = maximum }
         seek.isEnabled = player.current != nil && length > 0
         if !seek.isScrubbing, seek.doubleValue != elapsed { seek.doubleValue = elapsed }
-        let display = "\(timeLabel(elapsed)) / \(timeLabel(length.rounded()))"
-        if time.stringValue != display { time.stringValue = display }
+        let seconds = (Int(elapsed), Int(length.rounded()))
+        if let displayedSeconds, displayedSeconds == seconds { return }
+        displayedSeconds = seconds
+        time.stringValue = "\(timeLabel(elapsed)) / \(timeLabel(length.rounded()))"
     }
     @objc private func previous() { player.previous() }
     func routePickerViewWillBeginPresentingRoutes(_ routePickerView: AVRoutePickerView) {

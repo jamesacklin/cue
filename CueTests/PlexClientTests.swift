@@ -163,6 +163,12 @@ private final class FixtureProtocol: URLProtocol {
                 ["ratingKey": "11", "title": "Prelude", "parentIndex": 1, "index": 1,
                  "duration": 94500, "originalTitle": "Guest", "Media": [["Part": [["key": "/library/parts/11/file.m4a?download=0"]]]]]
             ]]]
+        case "/library/metadata/unpaged/children":
+            XCTAssertEqual(value("X-Plex-Container-Start"), "0", "The first response contains the entire album")
+            XCTAssertEqual(request.value(forHTTPHeaderField: "Accept"), "application/json", "Use the XML already delivered")
+            let tracks = (1...125).map { #"<Track ratingKey="\#($0)" title="Track \#($0)" index="\#($0)"/>"# }.joined()
+            rawBody = Data(("<MediaContainer size=\"125\">" + tracks + "</MediaContainer>").utf8)
+            json = [:]
         case "/library/metadata/2/children":
             json = ["MediaContainer": ["Metadata": [
                 ["ratingKey": "22", "title": "Two", "index": 2, "Media": [["Part": [["key": "/library/parts/22/file.m4a"]]]]],
@@ -237,6 +243,12 @@ final class PlexClientTests: XCTestCase {
         let query = try XCTUnwrap(URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems)
         XCTAssertEqual(query, [URLQueryItem(name: "download", value: "0"), URLQueryItem(name: "X-Plex-Token", value: "fixture-server")])
         XCTAssertThrowsError(try server.stream(for: tracks[1]))
+    }
+
+    func testAlbumConsumesUnpagedXMLInOneRequest() async throws {
+        let album = Album(id: "unpaged", title: "Fixture", artist: "Band", year: nil)
+        let tracks = try await client.tracks(album: album, on: server)
+        XCTAssertEqual(tracks.map(\.number), Array(1...125))
     }
 
     func testDefaultCatalogSortRequests() async throws {
@@ -471,6 +483,10 @@ final class PlexClientTests: XCTestCase {
         tab(3)
         try await waitUntil { table.tableColumns.first?.title == "Track" }
         tab(0)
+        XCTAssertEqual(table.numberOfRows, 100_003, "The cached viewport is available immediately")
+        try await assertParentRestored()
+        controller.refresh()
+        XCTAssertEqual(table.numberOfRows, 0, "Refresh discards the cached viewport")
         try await assertParentRestored()
         func openSelection() throws {
             let event = try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,

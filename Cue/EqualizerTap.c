@@ -1,6 +1,7 @@
 #include "EqualizerTap.h"
 #include <math.h>
 #include <stdatomic.h>
+#include <simd/simd.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -52,6 +53,23 @@ static void unprepare(MTAudioProcessingTapRef tap) {
     eq->delays = NULL;
 }
 
+// The two channels have independent filter histories and can advance in parallel.
+static void processStereo(Coefficients c, Delay *left, Delay *right, float *l, float *r,
+                          unsigned stride, CMItemCount frames) {
+    simd_double2 z1 = {left->z1, right->z1}, z2 = {left->z2, right->z2};
+    for (CMItemCount i = 0; i < frames; i++) {
+        simd_double2 input = {l[i * stride], r[i * stride]};
+        simd_double2 wet = c.gain * input + z1;
+        z1 = z2 - c.a1 * wet;
+        z2 = -c.gain * input - c.a2 * wet;
+        simd_double2 output = input + wet;
+        l[i * stride] = output.x;
+        r[i * stride] = output.y;
+    }
+    *left = (Delay){z1.x, z2.x};
+    *right = (Delay){z1.y, z2.y};
+}
+
 static void process(MTAudioProcessingTapRef tap, CMItemCount frames, MTAudioProcessingTapFlags flags,
                     AudioBufferList *buffers, CMItemCount *count, MTAudioProcessingTapFlags *outFlags) {
     if (MTAudioProcessingTapGetSourceAudio(tap, frames, buffers, outFlags, NULL, count) != noErr) {
@@ -62,19 +80,46 @@ static void process(MTAudioProcessingTapRef tap, CMItemCount frames, MTAudioProc
     if (!eq->delays || *count <= 0) return;
     bool reset = (*outFlags | flags) & kMTAudioProcessingTapFlag_StartOfStream;
     if (reset) memset(eq->delays, 0, eq->channels * CueEQBandCount * sizeof(Delay));
-    // Update in short blocks so moving a slider or bypassing a band ramps over ~10 ms.
+    // Snapshot controls once per callback. A fully bypassed tap leaves PCM untouched.
+    unsigned active[CueEQBandCount];
+    unsigned activeCount = 0;
+    double targets[CueEQBandCount];
+    for (unsigned band = 0; band < CueEQBandCount; band++) {
+        targets[band] = atomic_load_explicit(&eq->requested[band], memory_order_relaxed);
+        if (targets[band] != 0 || eq->applied[band] != 0) active[activeCount++] = band;
+    }
+    if (!activeCount) return;
+    float *leftSamples = NULL, *rightSamples = NULL;
+    unsigned stride = 1;
+    bool stereoCascade = activeCount > 1 && eq->channels == 2;
+    if (stereoCascade && buffers->mNumberBuffers == 1 && buffers->mBuffers[0].mNumberChannels == 2) {
+        stride = 2;
+        leftSamples = buffers->mBuffers[0].mData;
+        rightSamples = leftSamples + 1;
+    } else if (stereoCascade && buffers->mNumberBuffers == 2 &&
+               buffers->mBuffers[0].mNumberChannels == 1 && buffers->mBuffers[1].mNumberChannels == 1) {
+        leftSamples = buffers->mBuffers[0].mData;
+        rightSamples = buffers->mBuffers[1].mData;
+    }
     for (CMItemCount start = 0; start < *count; start += 32) {
         CMItemCount length = *count - start < 32 ? *count - start : 32;
-        for (unsigned band = 0; band < CueEQBandCount; band++) {
-            double db = atomic_load_explicit(&eq->requested[band], memory_order_relaxed);
-            if (db == 0 && eq->applied[band] == 0) continue;
-            if (db != eq->applied[band] || reset) {
+        for (unsigned index = 0; index < activeCount; index++) {
+            unsigned band = active[index];
+            double db = targets[band];
+            if (db != eq->applied[band]) {
                 double step = 12 * length / (0.01 * eq->sampleRate);
                 if (!reset) db = eq->applied[band] + fmax(-step, fmin(step, db - eq->applied[band]));
                 eq->applied[band] = db;
                 eq->sections[band] = peak(eq->sampleRate, frequencies[band], db);
             }
             Coefficients c = eq->sections[band];
+            if (leftSamples && rightSamples) {
+                Delay *left = &eq->delays[band], *right = &eq->delays[CueEQBandCount + band];
+                if (c.gain) processStereo(c, left, right, leftSamples + start * stride,
+                                          rightSamples + start * stride, stride, length);
+                else *left = *right = (Delay){0};
+                continue;
+            }
             unsigned channel = 0;
             for (unsigned b = 0; b < buffers->mNumberBuffers; b++) {
                 AudioBuffer buffer = buffers->mBuffers[b];
@@ -83,13 +128,15 @@ static void process(MTAudioProcessingTapRef tap, CMItemCount frames, MTAudioProc
                     Delay *d = &eq->delays[channel * CueEQBandCount + band];
                     if (!c.gain) { *d = (Delay){0}; continue; }
                     float *samples = (float *)buffer.mData + start * stride + j;
+                    Delay delay = *d;
                     for (CMItemCount i = 0; i < length; i++) {
                         double input = samples[i * stride];
-                        double wet = c.gain * input + d->z1;
-                        d->z1 = d->z2 - c.a1 * wet;
-                        d->z2 = -c.gain * input - c.a2 * wet;
+                        double wet = c.gain * input + delay.z1;
+                        delay.z1 = delay.z2 - c.a1 * wet;
+                        delay.z2 = -c.gain * input - c.a2 * wet;
                         samples[i * stride] = input + wet;
                     }
+                    *d = delay;
                 }
             }
         }

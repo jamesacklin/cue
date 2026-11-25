@@ -7,12 +7,12 @@ import XCTest
 
 @MainActor
 final class PlaybackTests: XCTestCase {
-    private func playbackEntries() throws -> [QueueEntry] {
+    private func playbackEntries(duration: Double = 24) throws -> [QueueEntry] {
         let url = try XCTUnwrap(Bundle(for: PlaybackTests.self).url(forResource: "playback-fixture", withExtension: "m4a"))
         let album = Album(id: "fixture", title: "Test album", artist: "Test artist", year: nil)
         return (1...2).map { index in
             let track = Track(id: String(index), title: "Track \(index)", artist: album.artist, disc: 1,
-                              number: index, duration: 24, part: nil)
+                              number: index, duration: duration, part: nil)
             return QueueEntry(track: track, album: album, url: url)
         }
     }
@@ -73,11 +73,11 @@ final class PlaybackTests: XCTestCase {
         defer { player.reset() }
         let entries = try playbackEntries()
         player.append(entries)
-        XCTAssertEqual(player.queue, entries)
+        XCTAssertEqual(player.queue, entries[...])
         try await wait { player.playing && player.elapsed > 0.2 }
         player.toggle()
         try await wait { !player.playing }
-        XCTAssertEqual(player.queue, entries)
+        XCTAssertEqual(player.queue, entries[...])
         player.seek(to: 23.3)
         player.toggle()
         try await wait { player.current?.id == entries[1].id && player.playing }
@@ -86,9 +86,9 @@ final class PlaybackTests: XCTestCase {
         XCTAssertFalse(player.hasNext)
         player.previous()
         XCTAssertEqual(player.current?.id, entries[0].id)
-        XCTAssertEqual(player.queue, entries)
+        XCTAssertEqual(player.queue, entries[...])
         player.next()
-        XCTAssertEqual(player.queue, entries)
+        XCTAssertEqual(player.queue, entries[...])
         player.seek(to: 23.4)
         try await wait { player.current?.id == entries[0].id }
         XCTAssertEqual(player.queue, [entries[0]])
@@ -232,7 +232,8 @@ final class PlaybackTests: XCTestCase {
         // Exercise the footer with progress enabled regardless of desktop occlusion.
         store.player.setProgressVisible(true)
         let slider = try XCTUnwrap(view.descendants(of: NSSlider.self).first { $0.accessibilityLabel() == "Playback position" })
-        store.player.replace(try playbackEntries(), startingAt: 0)
+        // The asset supplies the duration when Plex metadata omits it.
+        store.player.replace(try playbackEntries(duration: 0), startingAt: 0)
         try await wait("seek bar to show playback") { slider.doubleValue > 0.2 }
         let first = slider.doubleValue
         try await wait("seek bar to advance") { slider.doubleValue > first + 0.4 }
@@ -375,6 +376,15 @@ final class PlaybackTests: XCTestCase {
         try pressDelete(117, "\u{f728}")
         try await wait { table.numberOfRows == 3 && tabs.toolTip(forSegment: 3) == "3 tracks remaining" }
         XCTAssertEqual(store.player.queue, [entries[0], entries[4], entries[5]])
+        // Playback order remains zero-based in the table after consuming the queue head.
+        store.player.seek(to: 23.4)
+        try await wait { table.numberOfRows == 2 && store.player.current?.id == entries[4].id }
+        let writer = controller.tableView(table, pasteboardWriterForRow: 1) as? NSPasteboardItem
+        XCTAssertEqual(writer?.string(forType: .init("org.cueplayer.queue-entry")), entries[5].id.uuidString)
+        store.selectQueuedTrack(entries[5].id)
+        XCTAssertEqual(store.player.current?.id, entries[5].id)
+        XCTAssertTrue(controller.moveQueueSelection([entries[5].id], above: 0))
+        XCTAssertEqual(store.player.queue, [entries[5], entries[4]])
     }
 
     func testSortedQueueKeepsIdentityAndRemembersColumnChoices() async throws {

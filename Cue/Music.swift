@@ -32,6 +32,11 @@ struct QueueEntry: Identifiable, Hashable {
     let url: URL
 }
 
+extension ArraySlice where Element == QueueEntry {
+    // Table positions are zero-based even after playback advances the slice.
+    subscript(position offset: Int) -> QueueEntry { self[startIndex + offset] }
+}
+
 struct MusicError: LocalizedError {
     let message: String
     init(_ message: String) { self.message = message }
@@ -40,7 +45,8 @@ struct MusicError: LocalizedError {
 
 func timeLabel(_ seconds: Double) -> String {
     let value = seconds.isFinite ? Int(max(0, seconds)) : 0
-    return String(format: "%d:%02d", value / 60, value % 60)
+    let remainder = value % 60
+    return "\(value / 60):\(remainder < 10 ? "0" : "")\(remainder)"
 }
 
 struct CatalogOrder: Equatable {
@@ -94,16 +100,51 @@ struct CatalogOrder: Equatable {
     }
 }
 
-extension CatalogOrder {
-    /// The original offsets also identify the entries when the queue has duplicate tracks.
-    func sortedTrackIndices(count: Int, matching query: String, entry: (Int) -> (Track, Album)) -> [Int] {
-        let indices = (0..<count).filter { index in
-            guard !query.isEmpty else { return true }
-            let (track, album) = entry(index)
-            return MusicRow.track(track, album).matches(query)
+/// Natural order needs only a count, even for a very large queue.
+enum TrackIndices: RandomAccessCollection {
+    case natural(count: Int, reversed: Bool)
+    case ordered([Int])
+
+    var startIndex: Int { 0 }
+    var endIndex: Int {
+        switch self {
+        case .natural(let count, _): count
+        case .ordered(let indices): indices.count
         }
-        if field == .position { return ascending ? indices : Array(indices.reversed()) }
-        return indices.sorted { left, right in
+    }
+    subscript(position: Int) -> Int {
+        switch self {
+        case .natural(let count, let reversed): reversed ? count - 1 - position : position
+        case .ordered(let indices): indices[position]
+        }
+    }
+}
+
+extension CatalogOrder {
+    /// Album tracks arrive in disc/track order. Queue offsets distinguish duplicate tracks.
+    @concurrent
+    func sortedTrackIndices(count: Int, matching query: String, albumInTrackOrder: Bool = false,
+                            entry: @Sendable (Int) -> (Track, Album)) async throws -> TrackIndices {
+        let alreadyOrdered = field == .position || (albumInTrackOrder && field == .number && ascending)
+        if alreadyOrdered && query.isEmpty { return .natural(count: count, reversed: !ascending) }
+        var indices: [Int]
+        if query.isEmpty {
+            indices = Array(0..<count)
+        } else {
+            indices = try (0..<count).filter { index in
+                if index.isMultiple(of: 128) { try Task.checkCancellation() }
+                let (track, album) = entry(index)
+                return MusicRow.track(track, album).matches(query)
+            }
+        }
+        if alreadyOrdered {
+            if !ascending { indices.reverse() }
+            return .ordered(indices)
+        }
+        var comparisons = 0
+        try indices.sort { left, right in
+            comparisons += 1
+            if comparisons.isMultiple(of: 256) { try Task.checkCancellation() }
             let (a, b) = ascending ? (entry(left), entry(right)) : (entry(right), entry(left))
             switch field {
             case .disc: return a.0.disc < b.0.disc
@@ -113,9 +154,10 @@ extension CatalogOrder {
             default:
                 let lhs = MusicRow.track(a.0, a.1).text(for: field, position: left)
                 let rhs = MusicRow.track(b.0, b.1).text(for: field, position: right)
-                return lhs.localizedStandardCompare(rhs) == .orderedAscending
+                return lhs != rhs && lhs.localizedStandardCompare(rhs) == .orderedAscending
             }
         }
+        return .ordered(indices)
     }
 }
 
