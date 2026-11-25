@@ -4,6 +4,16 @@ import OSLog
 
 @MainActor
 final class LibraryStore: ObservableObject {
+    enum QueueAction {
+        case append, replace
+    }
+
+    private struct QueueRequest {
+        let row: MusicRow
+        let action: QueueAction
+        let albumTracks: [Track]?
+    }
+
     private var firstPage: CatalogPage?
     private var trackArtistIndex: TrackArtistIndex?
     @Published private(set) var server: PlexServer?
@@ -22,7 +32,8 @@ final class LibraryStore: ObservableObject {
     private let log = Logger(subsystem: "org.cueplayer.Minimal", category: "PlexConnection")
     private var token: String?
     private var job: Task<Void, Never>?
-    private var albumPlayback: Task<Void, Never>?
+    private var queueJob: Task<Void, Never>?
+    private var queueRequests: [QueueRequest] = []
     private var didRestore = false
     let defaults: UserDefaults
 
@@ -137,6 +148,7 @@ final class LibraryStore: ObservableObject {
     private func loadAlbums(_ selected: LibrarySection, from source: PlexServer) async throws {
         let records = try await client.page(.albums, section: selected, on: source, query: "", offset: 0)
         try Task.checkCancellation()
+        cancelQueueRequests()
         if server?.id != source.id || section?.id != selected.id { player.reset() }
         invalidateTrackArtistIndex()
         server = source
@@ -163,7 +175,7 @@ final class LibraryStore: ObservableObject {
         defaults.removeObject(forKey: "serverID")
         defaults.removeObject(forKey: "sectionID")
         firstPage = nil
-        player.reset()
+        clearQueue()
         connectionError = nil
         revision += 1
         showConnection = false
@@ -193,46 +205,97 @@ final class LibraryStore: ObservableObject {
     }
 
     func clearQueue() {
-        albumPlayback?.cancel()
-        albumPlayback = nil
+        cancelQueueRequests()
         player.reset()
     }
 
-    func selectQueuedTrack(_ index: Int) {
-        albumPlayback?.cancel()
-        albumPlayback = nil
+    var canClearQueue: Bool { player.current != nil || queueJob != nil }
+
+    func selectQueuedTrack(_ id: UUID) {
+        guard let index = player.queue.firstIndex(where: { $0.id == id }) else { return }
+        if queueRequests.first?.action == .replace {
+            queueJob?.cancel()
+            queueJob = nil
+            queueRequests.removeFirst()
+            loadQueueRequests()
+        }
         player.select(index)
     }
 
-    func playAlbum(_ album: Album, startingAt id: String? = nil) {
-        albumPlayback?.cancel()
-        let requestedRevision = revision
-        albumPlayback = Task {
-            do {
-                let tracks = try await tracks(for: album)
-                guard !Task.isCancelled, revision == requestedRevision else { return }
-                guard let first = tracks.first(where: { $0.part != nil }) else {
-                    player.error = "There are no playable tracks on this album."
-                    return
+    func enqueue(_ row: MusicRow, action: QueueAction, albumTracks: [Track]? = nil) {
+        guard server != nil, section != nil else { return }
+        if action == .replace { cancelQueueRequests() }
+        queueRequests.append(QueueRequest(row: row, action: action, albumTracks: albumTracks))
+        loadQueueRequests()
+    }
+
+    private func cancelQueueRequests() {
+        queueJob?.cancel()
+        queueJob = nil
+        queueRequests.removeAll()
+    }
+
+    private func loadQueueRequests() {
+        guard queueJob == nil, !queueRequests.isEmpty, let server, let section else { return }
+        queueJob = Task {
+            while let request = queueRequests.first {
+                do {
+                    let (entries, index) = try await queueEntries(for: request, on: server, in: section)
+                    try Task.checkCancellation()
+                    if request.action == .append { player.append(entries) }
+                    else { player.replace(entries, startingAt: index) }
+                } catch {
+                    guard !Task.isCancelled else { return }
+                    player.error = error.localizedDescription
                 }
-                play(tracks, from: id ?? first.id, album: album)
-            } catch {
-                if !Task.isCancelled, revision == requestedRevision { player.error = error.localizedDescription }
+                queueRequests.removeFirst()
             }
+            queueJob = nil
         }
     }
 
-    func play(_ tracks: [Track], from id: String, album: Album) {
-        albumPlayback?.cancel()
-        albumPlayback = nil
-        let entries = tracks.compactMap { track -> QueueEntry? in
-            guard let url = try? server?.stream(for: track) else { return nil }
-            return QueueEntry(track: track, album: album, url: url)
+    private func queueEntries(for request: QueueRequest, on server: PlexServer, in section: LibrarySection) async throws -> ([QueueEntry], Int) {
+        func entries(_ tracks: [Track], album: Album) -> [QueueEntry] {
+            tracks.compactMap { track in
+                guard let url = try? server.stream(for: track) else { return nil }
+                return QueueEntry(track: track, album: album, url: url)
+            }
         }
-        guard let index = entries.firstIndex(where: { $0.track.id == id }) else {
-            player.error = "There is no playable file for this track."
-            return
+
+        var result: [QueueEntry] = []
+        switch request.row {
+        case .track(let track, let album):
+            let tracks: [Track]
+            if request.action == .append || album.id.isEmpty { tracks = [track] }
+            else if let cached = request.albumTracks { tracks = cached }
+            else { tracks = try await client.tracks(album: album, on: server) }
+            result = entries(tracks, album: album)
+            guard let index = result.firstIndex(where: { $0.track.id == track.id }) else {
+                throw MusicError("There is no playable file for this track.")
+            }
+            return (result, index)
+        case .album(let album):
+            let tracks: [Track]
+            if let cached = request.albumTracks { tracks = cached }
+            else { tracks = try await client.tracks(album: album, on: server) }
+            result = entries(tracks, album: album)
+        case .artist(let id, _, _):
+            var offset = 0
+            var seen = Set<String>()
+            while true {
+                let page = try await client.page(.albums, section: section, on: server, query: "", offset: offset, artistID: id)
+                let count = seen.count
+                for case .album(let album) in page.rows where seen.insert(album.id).inserted {
+                    let tracks = try await client.tracks(album: album, on: server)
+                    result.append(contentsOf: entries(tracks, album: album))
+                }
+                guard let next = page.next, seen.count > count else { break }
+                offset = next
+            }
         }
-        player.replace(entries, startingAt: index)
+        guard !result.isEmpty else {
+            throw MusicError("There are no playable tracks in this selection.")
+        }
+        return (result, 0)
     }
 }

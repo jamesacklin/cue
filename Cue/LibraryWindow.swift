@@ -110,6 +110,7 @@ private final class PlayerWindow: NSWindow {
 
 private final class MusicTable: NSTableView {
     var openSelection: (() -> Void)?
+    var rowMenu: ((Int) -> NSMenu?)?
     weak var searchField: NSSearchField?
 
     var deleteSelection: (() -> Void)?
@@ -130,6 +131,10 @@ private final class MusicTable: NSTableView {
 
     override func rightMouseDown(with event: NSEvent) {
         if !toggleControlClick(event) { super.rightMouseDown(with: event) }
+    }
+
+    override func menu(for event: NSEvent) -> NSMenu? {
+        rowMenu?(row(at: convert(event.locationInWindow, from: nil)))
     }
 
     override func keyDown(with event: NSEvent) {
@@ -156,6 +161,13 @@ private final class MusicTable: NSTableView {
 
 @MainActor
 final class LibraryWindow: NSWindowController, NSTableViewDataSource, NSTableViewDelegate, NSSearchFieldDelegate, NSMenuItemValidation, NSToolbarDelegate {
+    private struct RowMenuSelection {
+        let row: MusicRow
+        let albumTracks: [Track]?
+        let revision: Int
+    }
+
+    private static let queueTab = Catalog.allCases.count
     private let store: LibraryStore
     private let table = MusicTable()
     private let tabs = NSSegmentedControl(labels: Catalog.allCases.map(\.title) + ["Queue"], trackingMode: .selectOne, target: nil, action: nil)
@@ -215,8 +227,8 @@ final class LibraryWindow: NSWindowController, NSTableViewDataSource, NSTableVie
             location = currentLocation()
             reload()
         }.store(in: &subscriptions)
-        store.player.$index.removeDuplicates().receive(on: RunLoop.main).sink { [weak self] _ in
-            if case .queue = self?.location.screen { self?.table.reloadData() }
+        store.player.$queue.map(\.count).removeDuplicates().receive(on: RunLoop.main).sink { [weak self] count in
+            self?.updateQueueBadge(count)
         }.store(in: &subscriptions)
         selectTab(0)
     }
@@ -251,11 +263,12 @@ final class LibraryWindow: NSWindowController, NSTableViewDataSource, NSTableVie
         tabs.segmentStyle = .texturedSquare
         tabs.controlSize = .small
         tabs.font = .systemFont(ofSize: 12, weight: .medium)
-        for (index, symbol) in ["square.stack", "person.2", "music.note", "list.bullet"].enumerated() {
+        for (index, symbol) in ["square.stack", "person.2", "music.note"].enumerated() {
             let image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?
                 .withSymbolConfiguration(.init(pointSize: 11, weight: .medium))
             tabs.setImage(image, forSegment: index)
         }
+        updateQueueBadge(store.player.queue.count)
         tabs.target = self
         tabs.action = #selector(changeTab)
         search.delegate = self
@@ -305,6 +318,7 @@ final class LibraryWindow: NSWindowController, NSTableViewDataSource, NSTableVie
         table.delegate = self
         table.target = self
         table.doubleAction = #selector(doubleClick)
+        table.rowMenu = { [weak self] row in self?.queueMenu(at: row) }
         table.registerForDraggedTypes([Self.queueDragType])
         table.setDraggingSourceOperationMask(.move, forLocal: true)
         table.setDraggingSourceOperationMask([], forLocal: false)
@@ -564,6 +578,35 @@ final class LibraryWindow: NSWindowController, NSTableViewDataSource, NSTableVie
         }
     }
 
+    private func updateQueueBadge(_ count: Int) {
+        let label = count.formatted()
+        let description = count == 1 ? "1 track remaining" : "\(label) tracks remaining"
+        tabs.setToolTip(description, forSegment: Self.queueTab)
+        defer { tabs.invalidateIntrinsicContentSize() }
+        guard count > 0 else {
+            let icon = NSImage(systemSymbolName: "list.bullet", accessibilityDescription: nil)?
+                .withSymbolConfiguration(.init(pointSize: 11, weight: .medium))
+            tabs.setImage(icon, forSegment: Self.queueTab)
+            return
+        }
+
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: NSFont.monospacedDigitSystemFont(ofSize: 10, weight: .semibold),
+            .foregroundColor: NSColor.white
+        ]
+        let textSize = label.size(withAttributes: attributes)
+        let size = NSSize(width: ceil(textSize.width) + 10, height: 15)
+        let badge = NSImage(size: size, flipped: false) { rect in
+            NSColor(white: 0.32, alpha: 1).setFill()
+            NSBezierPath(roundedRect: rect, xRadius: 7.5, yRadius: 7.5).fill()
+            label.draw(at: NSPoint(x: (rect.width - textSize.width) / 2, y: (rect.height - textSize.height) / 2),
+                       withAttributes: attributes)
+            return true
+        }
+        badge.accessibilityDescription = description
+        tabs.setImage(badge, forSegment: Self.queueTab)
+    }
+
     private func restorePosition(_ position: TablePosition) {
         if case .queue = location.screen {
             let selection = queueIndices.indices.filter { position.queueSelection.contains(displayedQueue[queueIndices[$0]].id) }
@@ -681,10 +724,8 @@ final class LibraryWindow: NSWindowController, NSTableViewDataSource, NSTableVie
         let position = queueIndices.indices.contains(index) ? queueIndices[index] : index
         let value = row(at: index)?.text(for: kind, position: position)
             ?? (column == table.tableColumns.first?.identifier ? "Loading…" : "")
-        let current = queueIndices.indices.contains(index) && queueIndices[index] == store.player.index
-        let weight: NSFont.Weight = current ? .semibold : .regular
         let numeric = key == "Time" || key == "Year" || key == "No." || kind == .disc || kind == .position
-        field.font = numeric ? .monospacedDigitSystemFont(ofSize: 12, weight: weight) : .systemFont(ofSize: 12, weight: weight)
+        field.font = numeric ? .monospacedDigitSystemFont(ofSize: 12, weight: .regular) : .systemFont(ofSize: 12)
         field.textColor = numeric ? .secondaryLabelColor : .labelColor
         field.stringValue = value
         return cell
@@ -804,7 +845,7 @@ final class LibraryWindow: NSWindowController, NSTableViewDataSource, NSTableVie
             store.player.toggle()
         } else if canStartSelection {
             if case .album(let album) = row(at: table.selectedRow) {
-                store.playAlbum(album)
+                store.enqueue(.album(album), action: .replace)
             } else {
                 act()
             }
@@ -817,6 +858,29 @@ final class LibraryWindow: NSWindowController, NSTableViewDataSource, NSTableVie
 
     @objc func audioOutput() { if let window { showOutputPicker(for: store.player, in: window) } }
     @objc func clearQueue() { store.clearQueue() }
+
+    private func queueMenu(at index: Int) -> NSMenu? {
+        if case .queue = location.screen { return nil }
+        guard !loading, let row = row(at: index) else { return nil }
+        let selection = RowMenuSelection(row: row, albumTracks: albumTracks, revision: store.revision)
+        let menu = NSMenu()
+        for (title, action) in [("Append to Queue", #selector(appendToQueue(_:))), ("Replace Queue", #selector(replaceQueue(_:)))] {
+            let item = menu.addItem(withTitle: title, action: action, keyEquivalent: "")
+            item.target = self
+            item.representedObject = selection
+        }
+        return menu
+    }
+
+    @objc private func appendToQueue(_ item: NSMenuItem) { enqueue(item, action: .append) }
+    @objc private func replaceQueue(_ item: NSMenuItem) { enqueue(item, action: .replace) }
+
+    private func enqueue(_ item: NSMenuItem, action: LibraryStore.QueueAction) {
+        guard let selection = item.representedObject as? RowMenuSelection,
+              selection.revision == store.revision else { return }
+        store.enqueue(selection.row, action: action, albumTracks: selection.albumTracks)
+    }
+
     @objc private func doubleClick() {
         if table.clickedRow >= 0 { act(at: table.clickedRow) }
     }
@@ -824,21 +888,21 @@ final class LibraryWindow: NSWindowController, NSTableViewDataSource, NSTableVie
     private func act(at index: Int) {
         guard !loading else { return }
         if case .album(let album) = location.screen, index < 0,
-           let tracks = albumTracks, let first = tracks.first(where: { $0.part != nil }) {
-            store.play(tracks, from: first.id, album: album)
+           let tracks = albumTracks, tracks.contains(where: { $0.part != nil }) {
+            store.enqueue(.album(album), action: .replace, albumTracks: tracks)
             return
         }
         guard let selected = row(at: index) else { return }
         switch selected {
         case .artist(let id, let name, _): open(.artist(id: id, name: name))
         case .album(let album): open(.album(album))
-        case .track(let track, let album):
+        case .track:
             if case .queue = location.screen {
                 let id = displayedQueue[queueIndices[index]].id
-                if let position = store.player.queue.firstIndex(where: { $0.id == id }) { store.selectQueuedTrack(position) }
-            } else if let albumTracks { store.play(albumTracks, from: track.id, album: album) }
-            else if !album.id.isEmpty { store.playAlbum(album, startingAt: track.id) }
-            else { store.play([track], from: track.id, album: album) }
+                store.selectQueuedTrack(id)
+            } else {
+                store.enqueue(selected, action: .replace, albumTracks: albumTracks)
+            }
         }
     }
 
@@ -869,7 +933,8 @@ final class LibraryWindow: NSWindowController, NSTableViewDataSource, NSTableVie
         case #selector(back): return !history.isEmpty
         case #selector(toggle): return (store.player.current != nil || canStartSelection) && window?.attachedSheet == nil && !(window?.firstResponder is NSText)
         case #selector(nextTrack): return store.player.hasNext
-        case #selector(previousTrack), #selector(clearQueue): return store.player.current != nil
+        case #selector(previousTrack): return store.player.current != nil
+        case #selector(clearQueue): return store.canClearQueue
         default: return true
         }
     }

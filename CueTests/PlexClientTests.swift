@@ -163,6 +163,11 @@ private final class FixtureProtocol: URLProtocol {
                 ["ratingKey": "11", "title": "Prelude", "parentIndex": 1, "index": 1,
                  "duration": 94500, "originalTitle": "Guest", "Media": [["Part": [["key": "/library/parts/11/file.m4a?download=0"]]]]]
             ]]]
+        case "/library/metadata/2/children":
+            json = ["MediaContainer": ["Metadata": [
+                ["ratingKey": "22", "title": "Two", "index": 2, "Media": [["Part": [["key": "/library/parts/22/file.m4a"]]]]],
+                ["ratingKey": "21", "title": "One", "index": 1, "Media": [["Part": [["key": "/library/parts/21/file.m4a"]]]]]
+            ]]]
         default:
             status = 401
             json = [:]
@@ -326,11 +331,79 @@ final class PlexClientTests: XCTestCase {
         let store = try await connectedStore(defaults: defaults)
         store.player.volume = 0
         defer { store.clearQueue() }
-        store.playAlbum(Album(id: "2", title: "Second", artist: "The Band", year: nil))
-        store.playAlbum(Album(id: "1", title: "First", artist: "The Band", year: nil))
+        store.enqueue(.album(Album(id: "2", title: "Second", artist: "The Band", year: nil)), action: .replace)
+        store.enqueue(.album(Album(id: "1", title: "First", artist: "The Band", year: nil)), action: .replace)
         try await waitUntil { store.player.current != nil }
-        XCTAssertEqual(store.player.queue.map(\.track.id), ["11"])
-        XCTAssertEqual(store.player.index, 0)
+        XCTAssertEqual(store.player.current?.track.id, "11")
+        XCTAssertTrue(store.player.queue.isEmpty)
+    }
+
+    @MainActor
+    func testLibraryRowMenusQueueTheClickedAlbumArtistAndTrack() async throws {
+        let name = "CueQueueMenu-" + UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: name))
+        defer { defaults.removePersistentDomain(forName: name) }
+        let store = try await connectedStore(defaults: defaults)
+        store.player.volume = 0
+        let controller = LibraryWindow(store: store)
+        controller.showWindow(nil)
+        defer { store.clearQueue(); controller.close() }
+        let window = try XCTUnwrap(controller.window)
+        let root = try XCTUnwrap(window.contentView)
+        let table = try XCTUnwrap(root.descendants(of: NSTableView.self).first)
+        let tabs = try XCTUnwrap(root.descendants(of: NSSegmentedControl.self).first)
+        func waitFor(_ name: String, _ condition: () -> Bool) async -> Bool {
+            do {
+                try await waitUntil(condition)
+                return true
+            } catch {
+                XCTFail("Timed out waiting for \(name). Rows: \(table.numberOfRows), queued: \(store.player.queue.map(\.track.id))")
+                return false
+            }
+        }
+        func menu(at row: Int) throws -> NSMenu {
+            let rect = table.rect(ofRow: row)
+            let point = table.convert(NSPoint(x: 20, y: rect.midY), to: nil)
+            let event = try XCTUnwrap(NSEvent.mouseEvent(with: .rightMouseDown, location: point, modifierFlags: [],
+                timestamp: 0, windowNumber: window.windowNumber, context: nil, eventNumber: 1, clickCount: 1, pressure: 1))
+            let menu = try XCTUnwrap(table.menu(for: event))
+            XCTAssertEqual(menu.items.map(\.title), ["Append to Queue", "Replace Queue"])
+            return menu
+        }
+
+        guard await waitFor("albums", { table.numberOfRows == 2 }) else { return }
+        try menu(at: 0).performActionForItem(at: 1)
+        guard await waitFor("first album playback", { store.player.current?.track.id == "11" }) else { return }
+        tabs.selectedSegment = Catalog.artists.rawValue
+        _ = tabs.sendAction(tabs.action, to: tabs.target)
+        guard await waitFor("artists", { table.numberOfRows == 1 }) else { return }
+        let artist = try menu(at: 0)
+        artist.performActionForItem(at: 0)
+        artist.performActionForItem(at: 0)
+        guard await waitFor("two artist appends", { store.player.queue.count == 6 }) else { return }
+        XCTAssertEqual(store.player.current?.track.id, "11")
+        XCTAssertEqual(store.player.queue.map(\.track.id), ["21", "22", "11", "21", "22", "11"])
+
+        // Open the second album using the keyboard, then append just its second track.
+        tabs.selectedSegment = Catalog.albums.rawValue
+        _ = tabs.sendAction(tabs.action, to: tabs.target)
+        guard await waitFor("second album", {
+            guard table.numberOfRows == 2 else { return false }
+            return (table.view(atColumn: 0, row: 1, makeIfNecessary: true) as? NSTableCellView)?.textField?.stringValue == "Second"
+        }) else { return }
+        table.selectRowIndexes(IndexSet(integer: 1), byExtendingSelection: false)
+        table.keyDown(with: try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [],
+            timestamp: 0, windowNumber: window.windowNumber, context: nil, characters: "\r",
+            charactersIgnoringModifiers: "\r", isARepeat: false, keyCode: 36)))
+        guard await waitFor("album tracks", { table.tableColumns.first?.title == "No." && table.numberOfRows == 2 }) else { return }
+        table.selectRowIndexes(IndexSet(integer: 0), byExtendingSelection: false)
+        let track = try menu(at: 1)
+        track.performActionForItem(at: 0)
+        guard await waitFor("single track append", { store.player.queue.count == 7 }) else { return }
+        XCTAssertEqual(store.player.queue.last?.track.id, "22")
+        track.performActionForItem(at: 1)
+        guard await waitFor("replacement track playback", { store.player.current?.track.id == "22" }) else { return }
+        XCTAssertTrue(store.player.queue.isEmpty)
     }
 
     @MainActor

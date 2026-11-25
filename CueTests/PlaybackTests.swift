@@ -32,16 +32,19 @@ final class PlaybackTests: XCTestCase {
         player.volume = 0
         defer { player.reset() }
         let entries = try playbackEntries()
-        player.replace(entries, startingAt: 0)
+        player.append(entries)
+        XCTAssertEqual(player.queue, [entries[1]])
         try await wait { player.playing && player.elapsed > 0.2 }
         player.toggle()
         try await wait { !player.playing }
         player.seek(to: 23.3)
         player.toggle()
-        try await wait { player.index == 1 && player.playing }
+        try await wait { player.current?.id == entries[1].id && player.playing }
+        XCTAssertTrue(player.queue.isEmpty)
         XCTAssertEqual(player.current?.track.title, "Track 2")
         player.previous()
-        XCTAssertEqual(player.index, 0)
+        XCTAssertEqual(player.current?.id, entries[0].id)
+        XCTAssertEqual(player.queue, [entries[1]])
         player.next()
         XCTAssertFalse(player.hasNext)
         player.reset()
@@ -98,7 +101,7 @@ final class PlaybackTests: XCTestCase {
         XCTAssertTrue(restored.enabled)
         XCTAssertEqual(restored.gains, eq.gains)
         player.seek(to: 23.3)
-        try await wait { player.index == 1 && player.audio.currentItem?.audioMix != nil }
+        try await wait { !player.hasNext && player.audio.currentItem?.audioMix != nil }
         eq.flatten()
         XCTAssertEqual(eq.gains, Array(repeating: 0, count: 10))
     }
@@ -246,30 +249,38 @@ final class PlaybackTests: XCTestCase {
         defer { player.reset() }
         // The same Plex track may occur more than once in the queue.
         let entries = try playbackEntries() + playbackEntries()
-        player.replace(entries, startingAt: 1)
+        player.replace(entries, startingAt: 0)
         try await wait { player.playing && player.elapsed > 0 }
         let item = player.audio.currentItem
-        player.moveQueuedEntries([entries[1].id, entries[3].id], to: 0)
-        XCTAssertEqual(player.queue, [entries[1], entries[3], entries[0], entries[2]])
+        player.moveQueuedEntries([entries[3].id, entries[1].id], to: 0)
+        XCTAssertEqual(player.queue, [entries[3], entries[1], entries[2]])
         XCTAssertTrue(player.audio.currentItem === item)
-        XCTAssertEqual(player.index, 0)
+        XCTAssertEqual(player.current?.id, entries[0].id)
         player.seek(to: 23.4)
         try await wait { player.current?.id == entries[3].id }
-        player.removeQueuedEntries([entries[1].id, entries[3].id])
-        try await wait { player.playing && player.current?.id == entries[0].id }
+        XCTAssertEqual(player.queue, [entries[1], entries[2]])
         player.pause()
         try await wait { !player.playing }
-        player.removeQueuedEntries([entries[0].id])
-        XCTAssertEqual(player.current?.id, entries[2].id)
-        XCTAssertEqual(player.audio.rate, 0)
-        player.removeQueuedEntries([entries[2].id])
+        player.removeQueuedEntries([entries[1].id, entries[2].id])
         XCTAssertTrue(player.queue.isEmpty)
-        XCTAssertNil(player.routePlayer.value)
+        XCTAssertEqual(player.current?.id, entries[3].id)
+        XCTAssertEqual(player.audio.rate, 0)
+        let pausedItem = player.audio.currentItem
+        player.append([entries[1], entries[2]])
+        XCTAssertEqual(player.queue, [entries[1], entries[2]])
+        XCTAssertTrue(player.audio.currentItem === pausedItem)
+        XCTAssertEqual(player.audio.rate, 0)
+        player.select(1)
+        XCTAssertEqual(player.current?.id, entries[2].id)
+        XCTAssertEqual(player.queue, [entries[1]])
+        player.next()
+        XCTAssertEqual(player.current?.id, entries[1].id)
+        XCTAssertTrue(player.queue.isEmpty)
     }
 
     func testQueueTableMovesSelectionAndHandlesBothDeleteKeys() async throws {
         let store = LibraryStore()
-        let entries = try playbackEntries() + playbackEntries()
+        let entries = try playbackEntries() + playbackEntries() + playbackEntries()
         store.player.volume = 0
         store.player.replace(entries, startingAt: 0)
         let controller = LibraryWindow(store: store)
@@ -281,10 +292,12 @@ final class PlaybackTests: XCTestCase {
         let tabs = try XCTUnwrap(view.descendants(of: NSSegmentedControl.self).first)
         tabs.selectedSegment = 3
         _ = tabs.sendAction(tabs.action, to: tabs.target)
-        try await wait { table.numberOfRows == 4 }
+        try await wait { table.numberOfRows == 5 }
+        XCTAssertEqual(tabs.toolTip(forSegment: 3), "5 tracks remaining")
+        XCTAssertEqual(tabs.image(forSegment: 3)?.accessibilityDescription, "5 tracks remaining")
         XCTAssertTrue(table.allowsMultipleSelection)
         table.sortDescriptors = [NSSortDescriptor(key: "Track", ascending: false)]
-        try await wait { table.numberOfRows == 4 }
+        try await wait { table.numberOfRows == 5 }
         table.selectRowIndexes(IndexSet(integer: 0), byExtendingSelection: false)
         let rect = table.rect(ofRow: 1)
         let point = table.convert(NSPoint(x: 20, y: rect.midY), to: nil)
@@ -293,21 +306,21 @@ final class PlaybackTests: XCTestCase {
                                     context: nil, eventNumber: 1, clickCount: 1, pressure: 1))
         window.sendEvent(click)
         XCTAssertEqual(table.selectedRowIndexes, IndexSet([0, 1]))
-        XCTAssertTrue(controller.moveQueueSelection([entries[1].id, entries[3].id], above: 2))
-        try await wait { table.numberOfRows == 4 && table.selectedRowIndexes == IndexSet([0, 1]) }
-        XCTAssertEqual(store.player.queue, [entries[1], entries[3], entries[0], entries[2]])
+        XCTAssertTrue(controller.moveQueueSelection([entries[1].id, entries[3].id], above: 0))
+        try await wait { table.numberOfRows == 5 && table.selectedRowIndexes == IndexSet([0, 1]) }
+        XCTAssertEqual(store.player.queue, [entries[1], entries[3], entries[2], entries[4], entries[5]])
         func pressDelete(_ code: UInt16, _ character: String) throws {
             window.sendEvent(try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero,
                 modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber, context: nil,
                 characters: character, charactersIgnoringModifiers: character, isARepeat: false, keyCode: code)))
         }
         try pressDelete(51, "\u{7f}")
-        try await wait { table.numberOfRows == 2 }
-        XCTAssertEqual(store.player.queue, [entries[0], entries[2]])
+        try await wait { table.numberOfRows == 3 }
+        XCTAssertEqual(store.player.queue, [entries[2], entries[4], entries[5]])
         table.selectRowIndexes(IndexSet(integer: 0), byExtendingSelection: false)
         try pressDelete(117, "\u{f728}")
-        try await wait { table.numberOfRows == 1 }
-        XCTAssertEqual(store.player.queue, [entries[2]])
+        try await wait { table.numberOfRows == 2 && tabs.toolTip(forSegment: 3) == "2 tracks remaining" }
+        XCTAssertEqual(store.player.queue, [entries[4], entries[5]])
     }
 
     func testSortedQueueKeepsIdentityAndRemembersColumnChoices() async throws {
@@ -316,7 +329,9 @@ final class PlaybackTests: XCTestCase {
         defer { defaults.removePersistentDomain(forName: suite) }
         let store = LibraryStore(defaults: defaults)
         store.player.volume = 0
-        store.player.replace(try playbackEntries(), startingAt: 0)
+        let entries = try playbackEntries() + playbackEntries().prefix(1)
+        store.player.replace(entries, startingAt: 0)
+        store.player.moveQueuedEntries([entries[2].id], to: 0)
         let controller = LibraryWindow(store: store)
         controller.showWindow(nil)
         defer { store.player.reset(); controller.close() }
@@ -346,8 +361,9 @@ final class PlaybackTests: XCTestCase {
         table.keyDown(with: try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
                                                           windowNumber: window.windowNumber, context: nil, characters: "\r",
                                                           charactersIgnoringModifiers: "\r", isARepeat: false, keyCode: 36)))
-        XCTAssertEqual(store.player.index, 1)
-        XCTAssertEqual(store.player.queue.map(\.track.title), ["Track 1", "Track 2"])
+        XCTAssertEqual(store.player.current?.id, entries[1].id)
+        XCTAssertEqual(store.player.queue, [entries[2]])
+        try await wait { table.numberOfRows == 1 && tabs.toolTip(forSegment: 3) == "1 track remaining" }
         tab(0)
         XCTAssertNil(menu.item(withTitle: "Disc"))
         tab(3)

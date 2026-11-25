@@ -6,7 +6,7 @@ import OSLog
 @MainActor
 final class Player: ObservableObject {
     @Published private(set) var queue: [QueueEntry] = []
-    @Published private(set) var index: Int?
+    @Published private(set) var current: QueueEntry?
     @Published private(set) var playing = false
     @Published private(set) var elapsed = 0.0
     @Published private(set) var length = 0.0
@@ -26,6 +26,7 @@ final class Player: ObservableObject {
     private var itemStatus: NSKeyValueObservation?
     private var playStatus: NSKeyValueObservation?
     private var finished = false
+    private var history: [QueueEntry] = []
     private var systemTransport: SystemTransport?
     private let log = Logger(subsystem: "org.cueplayer.Minimal", category: "Playback")
 
@@ -35,8 +36,7 @@ final class Player: ObservableObject {
         equalizer = Equalizer(defaults: defaults)
     }
 
-    var current: QueueEntry? { index.flatMap { queue.indices.contains($0) ? queue[$0] : nil } }
-    var hasNext: Bool { index.map { $0 + 1 < queue.count } ?? false }
+    var hasNext: Bool { !queue.isEmpty }
 
     var audio: AVPlayer {
         if let engine { return engine }
@@ -88,12 +88,25 @@ final class Player: ObservableObject {
 
     func replace(_ entries: [QueueEntry], startingAt index: Int) {
         guard entries.indices.contains(index) else { return }
-        queue = entries
-        select(index)
+        history.removeAll()
+        queue = Array(entries.dropFirst(index + 1))
+        start(entries[index])
+    }
+
+    func append(_ entries: [QueueEntry]) {
+        guard let first = entries.first else { return }
+        if current == nil || finished {
+            if let current { history.append(current) }
+            queue = Array(entries.dropFirst())
+            start(first)
+        } else {
+            queue.append(contentsOf: entries)
+            updateSystemTransport()
+        }
     }
 
     func moveQueuedEntries(_ ids: [UUID], to boundary: Int) {
-        guard let currentID = current?.id, (0...queue.count).contains(boundary), !ids.isEmpty else { return }
+        guard (0...queue.count).contains(boundary), !ids.isEmpty else { return }
         let selected = Set(ids)
         let entries = Dictionary(uniqueKeysWithValues: queue.filter { selected.contains($0.id) }.map { ($0.id, $0) })
         guard entries.count == ids.count else { return }
@@ -102,30 +115,25 @@ final class Player: ObservableObject {
         reordered.insert(contentsOf: ids.compactMap { entries[$0] }, at: insertion)
         guard reordered != queue else { return }
         queue = reordered
-        index = reordered.firstIndex { $0.id == currentID }
-        updateSystemTransport()
     }
 
     func removeQueuedEntries(_ ids: Set<UUID>) {
-        guard let index, let currentID = current?.id, !ids.isEmpty else { return }
+        guard !ids.isEmpty else { return }
         let remaining = queue.filter { !ids.contains($0.id) }
         guard remaining.count < queue.count else { return }
-        guard !remaining.isEmpty else { reset(); return }
-        let successor = queue.prefix(index).filter { !ids.contains($0.id) }.count
-        let resume = engine?.timeControlStatus != .paused && successor < remaining.count
         queue = remaining
-        if let position = remaining.firstIndex(where: { $0.id == currentID }) {
-            self.index = position
-            updateSystemTransport()
-        } else {
-            select(min(successor, remaining.count - 1), autoplay: resume)
-        }
+        updateSystemTransport()
     }
 
-    func select(_ position: Int, autoplay: Bool = true) {
+    func select(_ position: Int) {
         guard queue.indices.contains(position) else { return }
-        let entry = queue[position]
-        index = position
+        if let current { history.append(current) }
+        let entry = queue.remove(at: position)
+        start(entry)
+    }
+
+    private func start(_ entry: QueueEntry) {
+        current = entry
         elapsed = 0
         finished = false
         error = nil
@@ -157,7 +165,7 @@ final class Player: ObservableObject {
         equalizer.attach(to: item)
         audio.replaceCurrentItem(with: item)
         if systemTransport == nil { systemTransport = SystemTransport(player: self) }
-        if autoplay { audio.play() } else { audio.pause() }
+        audio.play()
         updateSystemTransport(position: 0)
     }
 
@@ -181,19 +189,23 @@ final class Player: ObservableObject {
     func pause() { engine?.pause() }
 
     func resume() {
-        guard let index else { return }
-        if finished || audio.currentItem?.status == .failed || error != nil { select(index) }
+        guard let current else { return }
+        if finished || audio.currentItem?.status == .failed || error != nil { start(current) }
         else { audio.play() }
     }
 
     func previous() {
-        guard let index else { return }
+        guard let current else { return }
         let position = engine?.currentTime().seconds ?? elapsed
-        if position > 3 || index == 0 { seek(to: 0) }
-        else { select(index - 1) }
+        if position > 3 || history.isEmpty {
+            seek(to: 0)
+        } else if let previous = history.popLast() {
+            queue.insert(current, at: 0)
+            start(previous)
+        }
     }
 
-    func next() { if let index, hasNext { select(index + 1) } }
+    func next() { select(0) }
 
     func seek(to time: Double) {
         guard current != nil, time.isFinite else { return }
@@ -216,8 +228,9 @@ final class Player: ObservableObject {
         clock = nil
         playStatus = nil
         engine = nil
-        index = nil
+        current = nil
         queue = []
+        history.removeAll()
         playing = false
         finished = false
         error = nil

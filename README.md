@@ -9,7 +9,9 @@ Choose **Connect to Plex…**, sign in through your browser, then select a serve
 - **Albums** opens a release in disc and track order. Use the footer’s Play button to start a selected album, or double-click a track to start there.
 - **Artists** opens an artist’s albums.
 - **Tracks** searches across the selected music library. Playing a result queues its album at that track.
-- **Queue** shows the current album queue and emphasizes the current track. Double-click an entry to jump to it. Shift-click selects a range. Control-click or Command-click toggles individual entries. Drag the selection between rows to move it in playback order, or press Backspace or Forward Delete to remove it. A drag from a sorted view returns Queue to playback order and keeps the search filter.
+- **Queue** shows upcoming tracks and displays their count in the tab. The transport shows the track that is playing. Double-click an entry or select it and press Return to play it immediately. Cue removes that entry from the queue and plays the remaining tracks in their original order. Shift-click selects a range. Control-click or Command-click toggles individual entries. Drag the selection between rows to move it in playback order, or press Backspace or Forward Delete to remove it. A drag from a sorted view returns Queue to playback order and keeps the search filter.
+
+Right-click an album, artist, or track and choose **Append to Queue** or **Replace Queue**. Appending an album adds its playable tracks in disc and track order. Appending an artist adds their albums in year order. Appending a track adds that track. Replacing starts playback immediately. With a track selected, replacing starts its album at that track, just like double-clicking. Appending also starts playback if Cue is idle.
 
 By default, Albums sorts by artist and then year, Artists by name, and Tracks by title. An artist’s albums sort by year. Opening an album from either tab lists its tracks by disc number and then track number.
 
