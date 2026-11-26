@@ -102,6 +102,29 @@ final class PlaybackTests: XCTestCase {
         XCTAssertNil(player.current)
     }
 
+    func testDoubledItemDurationEndsAtPlexTimeAndAdvancesWithProgressHidden() async throws {
+        let player = Player()
+        player.volume = 0
+        defer { player.reset() }
+        let first = try playbackEntries(duration: 12.05)[0]
+        let second = try playbackEntries(duration: 23)[1]
+        player.append([first, second])
+        try await wait("the loaded item to use the Plex end time") {
+            player.audio.currentItem?.forwardPlaybackEndTime.seconds == first.track.duration
+        }
+        XCTAssertEqual(player.length, first.track.duration)
+        let info = MPNowPlayingInfoCenter.default().nowPlayingInfo
+        XCTAssertEqual(info?[MPMediaItemPropertyPlaybackDuration] as? Double, first.track.duration)
+
+        player.setProgressVisible(false)
+        player.seek(to: player.length - 0.5)
+        try await wait("the queue to advance at the Plex end time") { player.current?.id == second.id }
+        try await wait("the second track to load its asset duration") { abs(player.length - 24) < 0.1 }
+        XCTAssertEqual(player.queue, [second])
+        let item = try XCTUnwrap(player.audio.currentItem)
+        XCTAssertFalse(item.forwardPlaybackEndTime.isValid)
+    }
+
     private func failCurrentItem(_ player: Player, cause: Error = NSError(domain: AVFoundationErrorDomain, code: -1)) throws {
         let item = try XCTUnwrap(player.audio.currentItem)
         NotificationCenter.default.post(name: .AVPlayerItemFailedToPlayToEndTime, object: item,

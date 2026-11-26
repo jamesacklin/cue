@@ -209,8 +209,15 @@ final class Player: ObservableObject {
                 guard let self, self.engine?.currentItem === item else { return }
                 let duration = item.duration.seconds
                 guard duration.isFinite, duration > 0 else { return }
-                let measured = (duration * 1000).rounded() / 1000
-                if measured != self.length { self.length = measured; self.updateSystemTransport() }
+                let catalog = entry.track.duration
+                // Some files load with a doubled duration. Allow for rounding in
+                // either source, with a tighter tolerance for short tracks.
+                let doubled = catalog > 0 && abs(duration / 2 - catalog) <= min(1, catalog * 0.01)
+                let length = doubled ? catalog : (duration * 1000).rounded() / 1000
+                let endTime = doubled ? CMTime(seconds: catalog, preferredTimescale: 1000) : .invalid
+                // Changing the end time can trigger another duration observation.
+                if item.forwardPlaybackEndTime != endTime { item.forwardPlaybackEndTime = endTime }
+                if length != self.length { self.length = length; self.updateSystemTransport() }
             }
         }
         itemStatus = item.observe(\.status, options: [.new]) { [weak self] item, _ in
