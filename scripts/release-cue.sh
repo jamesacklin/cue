@@ -72,7 +72,7 @@ if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; t
     gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
         --pattern "$(basename "$archive")" --dir "$updates"
 else
-    lipo -verify_arch arm64 x86_64 "$app/Contents/MacOS/Cue"
+    lipo "$app/Contents/MacOS/Cue" -verify_arch arm64 x86_64
     keychain_password=$(openssl rand -hex 24)
     cert="$work/developer-id.p12"
     printf '%s' "$APPLE_CERTIFICATE_BASE64" | base64 --decode > "$cert"
