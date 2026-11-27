@@ -1,0 +1,18 @@
+<?xml version="1.0" standalone="yes"?><!-- sparkle-sign-warning:
+IMPORTANT: This file was signed by Sparkle. Any modifications to this file requires re-signing this file with generate_appcast or sign_update! The signed signature will be embedded at the end of this file.
+--><rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0">
+    <channel>
+        <title>Cue</title>
+        <item>
+            <title>0.1.16</title>
+            <pubDate>Fri, 27 Nov 2026 20:02:26 +0000</pubDate>
+            <sparkle:version>18</sparkle:version>
+            <sparkle:shortVersionString>0.1.16</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <enclosure url="https://github.com/jamesacklin/cue/releases/download/v0.1.16/Cue-0.1.16-universal.zip" length="2706359" type="application/octet-stream" sparkle:edSignature="wwAHKks3hqsDv2c/gnphpyN/vfJuT9GCnwsFHSJVXUEPCXYBAam+kFeqXC/nsMZZoIFQ0sG3SxgD1a0J8iP6DA=="></enclosure>
+        </item>
+    </channel>
+</rss><!-- sparkle-signatures:
+edSignature: iLmSe9Bn4yG0u8l5t23gi9H5Q9Ov91qHqbtMVXNHCWXwLwn1HVS9D4mOKIFmjuIDAoM2Cx7VZkjnf3IX9QSVDQ==
+length: 1044
+-->
