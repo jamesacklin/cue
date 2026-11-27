@@ -4,6 +4,11 @@ Cue is a native Plex music player for macOS 14 and later. Browse albums, artists
 
 Download the ZIP from [GitHub Releases](https://github.com/jamesacklin/cue/releases/latest), unzip it, and move Cue to Applications. The guide below describes the current source checkout. Each release has notes for its published build.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="site/cue-dark.png">
+  <img src="site/cue-light.png" alt="Cue playing Nimbus from Ralph Towner’s Solstice, with the album’s tracks above the playback controls.">
+</picture>
+
 ## Connect and play
 
 Choose **Connect to Plex…** in the toolbar, sign in through your browser, and select a server and music library. Cue saves your account token in Keychain and remembers your library. Click the server name to change libraries or sign out.
