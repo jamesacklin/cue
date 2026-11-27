@@ -708,8 +708,6 @@ final class LibraryWindow: NSWindowController, NSTableViewDataSource, NSTableVie
             item.isEnabled = shown.count > 1 || item.state == .off
         }
         columnMenu.autoenablesItems = false
-        // Remove the previous view's sort before AppKit rearranges its columns.
-        table.sortDescriptors = []
         table.tableColumns.forEach(table.removeTableColumn)
         for field in shown {
             let name = field.rawValue
@@ -882,10 +880,13 @@ final class LibraryWindow: NSWindowController, NSTableViewDataSource, NSTableVie
         guard let offset = needed, offset != failedOffset else { return }
         pendingOffset = offset
         let revision = store.revision
+        let query = location.query
+        let order = location.order
         job = Task {
             do {
-                let page = try await store.catalog(request.kind, query: location.query, offset: offset,
-                                                   artist: request.artist, order: location.order)
+                try Task.checkCancellation()
+                let page = try await store.catalog(request.kind, query: query, offset: offset,
+                                                   artist: request.artist, order: order)
                 try Task.checkCancellation()
                 guard revision == store.revision else { return }
                 let oldCount = catalog.count
