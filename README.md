@@ -41,3 +41,7 @@ Run the tests with the fixture Plex responses and bundled audio file.
 ```sh
 xcodebuild -project Cue.xcodeproj -scheme Cue -derivedDataPath .build -destination 'platform=macOS' -parallel-testing-enabled NO test
 ```
+
+## Website
+
+Open [site/index.html](site/index.html) to preview the single-page site. To publish it to Cloudflare Pages, set `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` (Pages Edit), then run `./deploy-site.sh`. The script uses Node.js and npx to deploy `site/` to the `main` branch of the `cue` Pages project. Set `CLOUDFLARE_PAGES_PROJECT` to use a different project name.
