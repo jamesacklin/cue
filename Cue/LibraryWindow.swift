@@ -141,6 +141,29 @@ private final class MusicTable: NSTableView {
 
     var deleteSelection: (() -> Void)?
 
+    func fitColumns(to width: CGFloat, preserving resizedColumn: NSTableColumn?) {
+        guard width > 0, numberOfColumns > 0 else { return }
+        var remaining = floor(width) - rect(ofColumn: numberOfColumns - 1).maxX
+        var adjustable = tableColumns.filter { $0 !== resizedColumn && $0.resizingMask.contains(.autoresizingMask) }
+        while !adjustable.isEmpty, abs(remaining) >= 0.5 {
+            var clamped: [NSTableColumn] = []
+            for (index, column) in adjustable.enumerated() {
+                let oldWidth = column.width
+                let adjustment = (remaining / CGFloat(adjustable.count - index)).rounded(.towardZero)
+                let targetWidth = oldWidth + adjustment
+                column.width = min(column.maxWidth, max(column.minWidth, targetWidth))
+                remaining -= column.width - oldWidth
+                if targetWidth < column.minWidth || targetWidth > column.maxWidth {
+                    clamped.append(column)
+                }
+            }
+            // A column at its limit can no longer absorb any of the remaining change.
+            guard !clamped.isEmpty else { break }
+            adjustable.removeAll { clamped.contains($0) }
+        }
+        tile()
+    }
+
     override func menu(for event: NSEvent) -> NSMenu? {
         rowMenu?(row(at: convert(event.locationInWindow, from: nil)))
     }
@@ -167,6 +190,27 @@ private final class MusicTable: NSTableView {
     }
 }
 
+private final class LibraryScrollView: NSScrollView {
+    private var fittedWidth: CGFloat?
+    private var isFitting = false
+
+    override func tile() {
+        super.tile()
+        if fittedWidth != contentView.bounds.width {
+            fitColumns()
+        }
+    }
+
+    func fitColumns(preserving resizedColumn: NSTableColumn? = nil) {
+        guard !isFitting else { return }
+        isFitting = true
+        defer { isFitting = false }
+        let width = contentView.bounds.width
+        fittedWidth = width
+        (documentView as? MusicTable)?.fitColumns(to: width, preserving: resizedColumn)
+    }
+}
+
 @MainActor
 final class LibraryWindow: NSWindowController, NSTableViewDataSource, NSTableViewDelegate, NSSearchFieldDelegate, NSMenuItemValidation, NSToolbarDelegate {
     private struct RowMenuSelection {
@@ -178,6 +222,7 @@ final class LibraryWindow: NSWindowController, NSTableViewDataSource, NSTableVie
     private static let queueTab = Catalog.allCases.count
     private let store: LibraryStore
     private let table = MusicTable()
+    private let scroll = LibraryScrollView()
     private let tabs = NSSegmentedControl(labels: Catalog.allCases.map(\.title) + ["Queue"], trackingMode: .selectOne, target: nil, action: nil)
     private let search = NSSearchField()
     private let breadcrumbs = NSStackView()
@@ -372,7 +417,7 @@ final class LibraryWindow: NSWindowController, NSTableViewDataSource, NSTableVie
         table.rowHeight = 20
         table.intercellSpacing = NSSize(width: 8, height: 1)
         table.allowsColumnReordering = true
-        table.columnAutoresizingStyle = .lastColumnOnlyAutoresizingStyle
+        table.columnAutoresizingStyle = .noColumnAutoresizing
         table.dataSource = self
         table.delegate = self
         table.target = self
@@ -387,7 +432,6 @@ final class LibraryWindow: NSWindowController, NSTableViewDataSource, NSTableVie
         }
         table.searchField = search
         table.openSelection = { [weak self] in self?.act() }
-        let scroll = NSScrollView()
         scroll.contentView.postsBoundsChangedNotifications = true
         NotificationCenter.default.publisher(for: NSView.boundsDidChangeNotification, object: scroll.contentView)
             .sink { [weak self] _ in self?.loadVisibleRows(ifViewportChanged: true) }.store(in: &subscriptions)
@@ -620,6 +664,11 @@ final class LibraryWindow: NSWindowController, NSTableViewDataSource, NSTableVie
         store.defaults.set(order, forKey: columnOrderKey)
     }
 
+    func tableViewColumnDidResize(_ notification: Notification) {
+        guard let column = notification.userInfo?["NSTableColumn"] as? NSTableColumn else { return }
+        scroll.fitColumns(preserving: column)
+    }
+
     @objc private func showColumns(_ sender: NSButton) {
         columnMenu.popUp(positioning: nil, at: NSPoint(x: 0, y: sender.isFlipped ? sender.bounds.maxY : 0), in: sender)
     }
@@ -671,9 +720,8 @@ final class LibraryWindow: NSWindowController, NSTableViewDataSource, NSTableVie
             col.resizingMask = numeric ? [] : [.autoresizingMask, .userResizingMask]
             table.addTableColumn(col)
         }
-        table.columnAutoresizingStyle = .uniformColumnAutoresizingStyle
         syncSortHeader()
-        table.sizeToFit()
+        scroll.fitColumns()
     }
 
     private func reload(debounce: Bool = false, cached: CatalogRows? = nil) {
@@ -832,10 +880,13 @@ final class LibraryWindow: NSWindowController, NSTableViewDataSource, NSTableVie
         guard let offset = needed, offset != failedOffset else { return }
         pendingOffset = offset
         let revision = store.revision
+        let query = location.query
+        let order = location.order
         job = Task {
             do {
-                let page = try await store.catalog(request.kind, query: location.query, offset: offset,
-                                                   artist: request.artist, order: location.order)
+                try Task.checkCancellation()
+                let page = try await store.catalog(request.kind, query: query, offset: offset,
+                                                   artist: request.artist, order: order)
                 try Task.checkCancellation()
                 guard revision == store.revision else { return }
                 let oldCount = catalog.count

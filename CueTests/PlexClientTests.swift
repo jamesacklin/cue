@@ -605,6 +605,49 @@ final class PlexClientTests: XCTestCase {
     }
 
     @MainActor
+    func testTrackColumnsFitTheViewportOnTabChangesAndResize() throws {
+        let suite = "CueColumnWidth-" + UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        defaults.set(["No.", "Track", "Artist", "Album", "Time", "Disc", "Year", "Album Artist"], forKey: "columns.Tracks")
+        let store = LibraryStore(defaults: defaults)
+        let controller = LibraryWindow(store: store)
+        defer { controller.close() }
+        let window = try XCTUnwrap(controller.window)
+        let root = try XCTUnwrap(window.contentView)
+        let table = try XCTUnwrap(root.descendants(of: NSTableView.self).first)
+        let scroll = try XCTUnwrap(table.enclosingScrollView)
+        let tabs = try XCTUnwrap(root.descendants(of: NSSegmentedControl.self).first)
+        scroll.scrollerStyle = .legacy
+        controller.showWindow(nil)
+
+        tabs.selectedSegment = Catalog.tracks.rawValue
+        _ = tabs.sendAction(tabs.action, to: tabs.target)
+        XCTAssertEqual(table.numberOfColumns, 8)
+
+        for width: CGFloat in [760, window.contentMinSize.width, 980, window.contentMinSize.width, 760] {
+            window.setContentSize(NSSize(width: width, height: 420))
+            root.layoutSubtreeIfNeeded()
+            let columnEnd = table.rect(ofColumn: table.numberOfColumns - 1).maxX
+            XCTAssertEqual(columnEnd, scroll.contentView.bounds.width, accuracy: 1, "Window width \(width)")
+            XCTAssertTrue(scroll.horizontalScroller?.isHidden == true,
+                          "Window width \(width), document width \(table.frame.width), column edge \(columnEnd)")
+            XCTAssertEqual(table.tableColumns[0].width, 52)
+        }
+
+        let resized = try XCTUnwrap(table.tableColumn(withIdentifier: .init("Track")))
+        let requestedWidth = resized.width + 28
+        resized.width = requestedWidth
+        NotificationCenter.default.post(name: NSTableView.columnDidResizeNotification, object: table,
+                                        userInfo: ["NSTableColumn": resized])
+        root.layoutSubtreeIfNeeded()
+        XCTAssertEqual(resized.width, requestedWidth, accuracy: 1)
+        XCTAssertEqual(table.rect(ofColumn: table.numberOfColumns - 1).maxX, scroll.contentView.bounds.width, accuracy: 1,
+                       "Column widths: \(table.tableColumns.map(\.width))")
+        XCTAssertTrue(scroll.horizontalScroller?.isHidden == true)
+    }
+
+    @MainActor
     func testSortHeadersAndBreadcrumbNavigation() async throws {
         let suite = "CueNavigation-" + UUID().uuidString
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
