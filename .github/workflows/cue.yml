@@ -5,6 +5,12 @@ on:
   push:
     branches: [main]
     tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Existing stable tag to publish or retry
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -15,13 +21,18 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ inputs.release_tag || github.ref }}
       - name: Test
         run: |
           xcodebuild -project Cue.xcodeproj -scheme Cue -derivedDataPath .build \
             -destination 'platform=macOS' -parallel-testing-enabled NO test
 
   release:
-    if: github.repository == 'jamesacklin/cue' && github.ref_type == 'tag'
+    if: >-
+      github.repository == 'jamesacklin/cue' &&
+      ((github.event_name == 'push' && github.ref_type == 'tag') ||
+       (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'))
     needs: test
     runs-on: macos-26
     timeout-minutes: 45
@@ -37,7 +48,7 @@ jobs:
       - name: Build, notarize, and publish
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_TAG: ${{ inputs.release_tag || github.ref_name }}
           APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
@@ -45,4 +56,15 @@ jobs:
           APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
           SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
           SPARKLE_PUBLIC_KEY: ${{ vars.SPARKLE_PUBLIC_KEY }}
-        run: scripts/release-cue.sh
+        run: |
+          release_script="$PWD/scripts/release-cue.sh"
+          if [[ "$GITHUB_EVENT_NAME" == workflow_dispatch ]]; then
+            if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "Expected an existing stable release tag such as v0.1.16" >&2
+              exit 1
+            fi
+            git fetch --depth=1 origin "refs/tags/$RELEASE_TAG"
+            git worktree add --detach "$RUNNER_TEMP/cue-source" FETCH_HEAD
+            cd "$RUNNER_TEMP/cue-source"
+          fi
+          "$release_script"

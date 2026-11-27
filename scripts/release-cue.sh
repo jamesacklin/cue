@@ -78,8 +78,9 @@ else
     printf '%s' "$APPLE_CERTIFICATE_BASE64" | base64 --decode > "$cert"
     security create-keychain -p "$keychain_password" "$keychain"
     security unlock-keychain -p "$keychain_password" "$keychain"
+    security list-keychains -d user -s "$keychain"
     security import "$cert" -k "$keychain" -f pkcs12 -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
-    security set-key-partition-list -S apple-tool:,apple: -s -k "$keychain_password" "$keychain"
+    security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$keychain_password" "$keychain" >/dev/null
     identity=$(security find-identity -v -p codesigning "$keychain" | awk '/"Developer ID Application:/ {print $2; exit}')
     if [[ -z "$identity" ]]; then
         echo 'The certificate must be a Developer ID Application identity with its private key' >&2

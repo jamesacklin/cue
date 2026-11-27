@@ -24,4 +24,6 @@ After building once, Sparkle's `generate_keys` tool is in the SwiftPM artifact's
 2. Tag the release commit with the marketing version and push the tag, for example `git push origin v0.1.16` after creating `v0.1.16` locally.
 3. Confirm the Actions run published both the ZIP and [the feed](https://raw.githubusercontent.com/jamesacklin/cue/appcast/appcast.xml). The feed points to the GitHub asset for that tag.
 
+To retry an existing tag with the current release tooling, run the **Cue** workflow manually from `main` and enter the tag in `release_tag`. It builds and tests the tagged source.
+
 Existing users install the first Sparkle-enabled release from GitHub manually. To verify the rollout end to end, install it in Applications, publish a newer build, and choose **Cue → Check for Updates…**. Confirm the new build relaunches and retains the existing Plex library selection. Builds made locally without `SPARKLE_PUBLIC_KEY` omit the update menu.
