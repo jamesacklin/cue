@@ -1,4 +1,5 @@
 import AppKit
+import Sparkle
 
 @main
 @MainActor
@@ -12,6 +13,7 @@ final class CueApp: NSObject, NSApplicationDelegate {
     }
 
     private var window: LibraryWindow!
+    private var updaterController: SPUStandardUpdaterController?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         let store = LibraryStore()
@@ -26,6 +28,13 @@ final class CueApp: NSObject, NSApplicationDelegate {
         }
         let app = submenu("Cue")
         app.addItem(withTitle: "About Cue", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
+        if let key = Bundle.main.object(forInfoDictionaryKey: "SUPublicEDKey") as? String,
+           let decodedKey = Data(base64Encoded: key), decodedKey.count == 32 {
+            let updater = SPUStandardUpdaterController(startingUpdater: true, updaterDelegate: nil, userDriverDelegate: nil)
+            updaterController = updater
+            app.addItem(withTitle: "Check for Updates…", action: #selector(SPUStandardUpdaterController.checkForUpdates(_:)),
+                        keyEquivalent: "").target = updater
+        }
         app.addItem(.separator())
         let services = NSMenu(title: "Services")
         app.addItem(withTitle: "Services", action: nil, keyEquivalent: "").submenu = services

@@ -11,21 +11,43 @@ settings:
     ENABLE_HARDENED_RUNTIME: YES
     MARKETING_VERSION: '0.1.15'
     CURRENT_PROJECT_VERSION: '17'
+packages:
+  Sparkle:
+    url: https://github.com/sparkle-project/Sparkle
+    exactVersion: 2.10.1
 targets:
   Cue:
     type: application
     platform: macOS
     sources: [Cue]
     productName: Cue
+    dependencies:
+      - package: Sparkle
+    info:
+      path: Cue/Info.plist
+      properties:
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        LSApplicationCategoryType: public.app-category.music
+        NSLocalNetworkUsageDescription: Cue connects to your selected Plex Media Server to browse and play your music.
+        SUFeedURL: https://raw.githubusercontent.com/jamesacklin/cue/appcast/appcast.xml
+        SUPublicEDKey: $(SPARKLE_PUBLIC_KEY)
+        SURequireSignedFeed: true
+        SUEnableInstallerLauncherService: true
+    entitlements:
+      path: Cue/Cue.entitlements
+      properties:
+        com.apple.security.app-sandbox: true
+        com.apple.security.network.client: true
+        com.apple.security.temporary-exception.mach-lookup.global-name:
+          - $(PRODUCT_BUNDLE_IDENTIFIER)-spks
+          - $(PRODUCT_BUNDLE_IDENTIFIER)-spki
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: org.cueplayer.Minimal
         SWIFT_OBJC_BRIDGING_HEADER: Cue/EqualizerTap.h
         PRODUCT_MODULE_NAME: Cue
         PRODUCT_NAME: Cue
-        GENERATE_INFOPLIST_FILE: YES
-        INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.music
-        INFOPLIST_KEY_NSLocalNetworkUsageDescription: Cue connects to your selected Plex Media Server to browse and play your music.
         ENABLE_APP_SANDBOX: YES
         ENABLE_OUTGOING_NETWORK_CONNECTIONS: YES
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
