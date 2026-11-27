@@ -15,6 +15,7 @@
 		3F626C02A235D320B37A21DA /* EqualizerPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A46E36F95CA9AFDBE6B202B4 /* EqualizerPanel.swift */; };
 		61B31725DB00B885163D64D0 /* PlaybackTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF4A22A0F24A8F2C8987B1C4 /* PlaybackTests.swift */; };
 		65EA34A2629FDF40EE0108C6 /* Music.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4076EC21DC62F00DD4A054DE /* Music.swift */; };
+		75A3EAE28B242A70D87CED4A /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = F4ADEAEF983B4965688A2823 /* Sparkle */; };
 		8598082A5E8BC60E9C9C0503 /* PlexClientTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E431A32713EC304AB331E6C3 /* PlexClientTests.swift */; };
 		8FD649D5C76994D44C90563B /* LibraryWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 92C2580C3D76D1DD032F83C8 /* LibraryWindow.swift */; };
 		952A8D482EF9CAA4777C5C23 /* Player.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0DE559193FF3A2603D99120 /* Player.swift */; };
@@ -46,6 +47,7 @@
 		6E55D9E0F8198923EEBD3D31 /* Cue.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Cue.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		773294C3C7DF1B963814B658 /* ConnectionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionView.swift; sourceTree = "<group>"; };
 		78D50E6D814A533438991893 /* AirPlayDiagnostics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AirPlayDiagnostics.swift; sourceTree = "<group>"; };
+		8CCF6E6B53A20E8D7C8149D6 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		8D3C3C805B317D497B6C8747 /* Equalizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Equalizer.swift; sourceTree = "<group>"; };
 		92C2580C3D76D1DD032F83C8 /* LibraryWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryWindow.swift; sourceTree = "<group>"; };
 		A46E36F95CA9AFDBE6B202B4 /* EqualizerPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EqualizerPanel.swift; sourceTree = "<group>"; };
@@ -61,7 +63,19 @@
 		E431A32713EC304AB331E6C3 /* PlexClientTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlexClientTests.swift; sourceTree = "<group>"; };
 		E9AA534F3CEDB69E959023BE /* AppIcon.icon */ = {isa = PBXFileReference; lastKnownFileType = wrapper.icon; path = AppIcon.icon; sourceTree = "<group>"; };
 		EBA43BE1B28E11D264CCD345 /* SystemTransport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemTransport.swift; sourceTree = "<group>"; };
+		F46691B90FC1857CE9C3A69A /* Cue.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Cue.entitlements; sourceTree = "<group>"; };
 /* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		192EBE658519728772FD02E8 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				75A3EAE28B242A70D87CED4A /* Sparkle in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
 		95CE89202C884CEC160F070B /* Products */ = {
@@ -107,11 +121,13 @@
 				E9AA534F3CEDB69E959023BE /* AppIcon.icon */,
 				773294C3C7DF1B963814B658 /* ConnectionView.swift */,
 				088983F2D5D0AC6009245343 /* Credentials.swift */,
+				F46691B90FC1857CE9C3A69A /* Cue.entitlements */,
 				C9CBFA6B6C30326539006AEB /* CueApp.swift */,
 				8D3C3C805B317D497B6C8747 /* Equalizer.swift */,
 				A46E36F95CA9AFDBE6B202B4 /* EqualizerPanel.swift */,
 				ABD4070731116117968C6928 /* EqualizerTap.c */,
 				CC33EF9FE9BD9203B6AFBA3E /* EqualizerTap.h */,
+				8CCF6E6B53A20E8D7C8149D6 /* Info.plist */,
 				B9787D02FC58E3B08B296F63 /* LibraryStore.swift */,
 				92C2580C3D76D1DD032F83C8 /* LibraryWindow.swift */,
 				20B6FD71273196223E9A8660 /* ListeningViews.swift */,
@@ -133,6 +149,7 @@
 			buildPhases = (
 				9E8DA20E6FE468F043DDB77F /* Sources */,
 				522D44577B7B730491927B03 /* Resources */,
+				192EBE658519728772FD02E8 /* Frameworks */,
 			);
 			buildRules = (
 			);
@@ -140,6 +157,7 @@
 			);
 			name = Cue;
 			packageProductDependencies = (
+				F4ADEAEF983B4965688A2823 /* Sparkle */,
 			);
 			productName = Cue;
 			productReference = 6E55D9E0F8198923EEBD3D31 /* Cue.app */;
@@ -190,6 +208,9 @@
 			);
 			mainGroup = DA76B9F434C778093A75016B;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				EF722C4A97BAC3C0F6EF1D9F /* XCRemoteSwiftPackageReference "Sparkle" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 95CE89202C884CEC160F070B /* Products */;
 			projectDirPath = "";
@@ -267,12 +288,11 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = Cue/Cue.entitlements;
 				COMBINE_HIDPI_IMAGES = YES;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
-				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.music";
-				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Cue connects to your selected Plex Media Server to browse and play your music.";
+				INFOPLIST_FILE = Cue/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
@@ -367,12 +387,11 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = Cue/Cue.entitlements;
 				COMBINE_HIDPI_IMAGES = YES;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
-				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.music";
-				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Cue connects to your selected Plex Media Server to browse and play your music.";
+				INFOPLIST_FILE = Cue/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
@@ -501,6 +520,25 @@
 			defaultConfigurationName = Debug;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		EF722C4A97BAC3C0F6EF1D9F /* XCRemoteSwiftPackageReference "Sparkle" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/sparkle-project/Sparkle";
+			requirement = {
+				kind = exactVersion;
+				version = 2.10.1;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		F4ADEAEF983B4965688A2823 /* Sparkle */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = EF722C4A97BAC3C0F6EF1D9F /* XCRemoteSwiftPackageReference "Sparkle" */;
+			productName = Sparkle;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 3A710968E8080B37367BF584 /* Project object */;
 }
