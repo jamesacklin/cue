@@ -4,15 +4,15 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
     <channel>
         <title>Cue</title>
         <item>
-            <title>0.1.17</title>
-            <pubDate>Fri, 27 Nov 2026 20:21:02 +0000</pubDate>
-            <sparkle:version>19</sparkle:version>
-            <sparkle:shortVersionString>0.1.17</sparkle:shortVersionString>
+            <title>0.1.18</title>
+            <pubDate>Fri, 27 Nov 2026 20:44:27 +0000</pubDate>
+            <sparkle:version>20</sparkle:version>
+            <sparkle:shortVersionString>0.1.18</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-            <enclosure url="https://github.com/jamesacklin/cue/releases/download/v0.1.17/Cue-0.1.17-universal.zip" length="2706369" type="application/octet-stream" sparkle:edSignature="dONooywFHWtIJU2HsL8IjoOl46r8EDZ0q2byqOPb+WKKhCSN/cBhPpd7z/a0S57JcgA7V9AqCOJvel00Izf7AA=="></enclosure>
+            <enclosure url="https://github.com/jamesacklin/cue/releases/download/v0.1.18/Cue-0.1.18-universal.zip" length="2716885" type="application/octet-stream" sparkle:edSignature="ytZ/yJl8RN4KjUWA9019+qQEEOscKAFIUGq6MMZCykH79puiR+Q0si05bG+cMQd97TxnBhVhIVLZzQ3pCU6yDw=="></enclosure>
         </item>
     </channel>
 </rss><!-- sparkle-signatures:
-edSignature: 59aS2mUtjS0HpzXrLz9nl+1ZTrsZThc6Eml2HA8iq3VyNgAlqVwDVXRreSEhB7P9Pqm9N/TbjIQTdHoUui4+Aw==
+edSignature: yedORua3KlyP1sQJ4roXuZm9fTIKooYSnFMk+opo+K51q7QlpEmbac8q07SEdFCDu2TDrVQ5f1EsEsTyLQinBA==
 length: 1044
 -->
