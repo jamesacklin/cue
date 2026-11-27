@@ -9,8 +9,8 @@ settings:
     CODE_SIGN_IDENTITY: '-'
     CODE_SIGN_STYLE: Manual
     ENABLE_HARDENED_RUNTIME: YES
-    MARKETING_VERSION: '0.1.16'
-    CURRENT_PROJECT_VERSION: '18'
+    MARKETING_VERSION: '0.1.17'
+    CURRENT_PROJECT_VERSION: '19'
 packages:
   Sparkle:
     url: https://github.com/sparkle-project/Sparkle
@@ -33,6 +33,7 @@ targets:
         SUFeedURL: https://raw.githubusercontent.com/jamesacklin/cue/appcast/appcast.xml
         SUPublicEDKey: $(SPARKLE_PUBLIC_KEY)
         SURequireSignedFeed: true
+        SUVerifyUpdateBeforeExtraction: true
         SUEnableInstallerLauncherService: true
     entitlements:
       path: Cue/Cue.entitlements

@@ -43,6 +43,13 @@ xcodebuild -project Cue.xcodeproj -scheme Cue -configuration Release \
 
 app="$work/build/Build/Products/Release/Cue.app"
 plist="$app/Contents/Info.plist"
+frameworks="$app/Contents/Frameworks"
+sparkle_artifact="$work/build/SourcePackages/artifacts/sparkle/Sparkle"
+release_scripts=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+xcrun swiftc -F "$sparkle_artifact/Sparkle.xcframework/macos-arm64_x86_64" -Xlinker -rpath -Xlinker "$frameworks" \
+    "$release_scripts/check-updater.swift" -o "$work/check-updater"
+"$work/check-updater" "$app"
+
 if [[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$plist")" != "$version" ]]; then
     echo "The release tag must match MARKETING_VERSION in project.yml" >&2
     exit 1
@@ -109,7 +116,7 @@ else
     ditto -c -k --keepParent "$app" "$archive"
 fi
 
-generate_appcast="$work/build/SourcePackages/artifacts/sparkle/Sparkle/bin/generate_appcast"
+generate_appcast="$sparkle_artifact/bin/generate_appcast"
 printf '%s\n' "$SPARKLE_PRIVATE_KEY" | "$generate_appcast" --ed-key-file - --maximum-deltas 0 \
     --download-url-prefix "https://github.com/$GITHUB_REPOSITORY/releases/download/$RELEASE_TAG/" \
     -o "$updates/appcast.xml" "$updates"
