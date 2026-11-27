@@ -708,6 +708,8 @@ final class LibraryWindow: NSWindowController, NSTableViewDataSource, NSTableVie
             item.isEnabled = shown.count > 1 || item.state == .off
         }
         columnMenu.autoenablesItems = false
+        // Remove the previous view's sort before AppKit rearranges its columns.
+        table.sortDescriptors = []
         table.tableColumns.forEach(table.removeTableColumn)
         for field in shown {
             let name = field.rawValue
